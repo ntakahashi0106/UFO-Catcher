@@ -1,0 +1,9 @@
+{
+  "name": "hashi-bridge-catcher",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite --host 0.0.0.0", "build": "vite build", "preview": "vite preview --host 0.0.0.0", "test": "node --test tests/*.test.js" },
+  "dependencies": { "three": "^0.180.0", "@dimforge/rapier3d-compat": "^0.19.0", "lucide": "^0.468.0" },
+  "devDependencies": { "vite": "^7.1.0" }
+}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f4ef" />
+    <meta name="description" content="橋の上の箱を、少しずつ。three.js と剛体物理演算で遊ぶ、橋渡し式クレーンゲーム。PC・スマートフォン横持ち対応。" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231c2929'/%3E%3Cpath d='M17 20v24m30-24v24M17 32h30' stroke='%23c6ee9e' stroke-width='7'/%3E%3C/svg%3E" />
+    <title>HASHI — 橋渡しクレーンシミュレーター</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="site-header">
+        <a href="./" class="brand" aria-label="HASHI ホーム"><span class="brand-mark"><i></i><i></i><i></i></span><span>HASHI<span class="brand-dot">.</span></span><span class="brand-description">CRANE SIMULATOR</span></a>
+        <nav class="header-nav"><span class="nav-active">シミュレーター</span><button data-dialog="help">遊び方 <i data-lucide="arrow-up-right"></i></button></nav>
+        <div class="header-actions"><span class="live-tag"><span></span> PHYSICS LIVE</span><button class="icon-button" id="sound-button" aria-label="サウンドをオンにする" title="サウンド"><i data-lucide="volume-x"></i></button><button class="icon-button" id="fullscreen-button" aria-label="フルスクリーン" title="フルスクリーン"><i data-lucide="maximize"></i></button></div>
+      </header>
+
+      <main>
+        <div class="page-intro"><div><p class="eyebrow">THE BRIDGE CATCHER</p><h1>橋渡しの、その一手<span>。</span></h1><p class="intro-text">狙う、ずらす、もう一度。重心を読むクレーンゲーム。</p></div><div class="intro-aside"><span class="outline-pill">NO. 001 / BRIDGE</span><p>つかむだけじゃ、取れない。</p></div></div>
+        <div class="game-layout">
+          <section class="machine-panel" aria-label="3Dクレーンゲーム">
+            <div class="machine-header"><div class="machine-label"><span class="mint-dot"></span><span>HASHI <b>01</b></span><span class="small-separator"></span><span class="setup-label">橋渡し / 2本バー</span></div><span class="free-play">FREE PLAY <i data-lucide="infinity"></i></span></div>
+            <div id="stage">
+              <div class="stage-corner"><span class="corner-index">01 —</span><span>BRIDGE CHALLENGE</span></div>
+              <div class="stage-status" id="stage-status"><span></span>位置を合わせてください</div>
+              <div class="loading" id="loading"><div class="loader-mark"></div><strong>筐体を準備しています</strong><span>3D & PHYSICS LOADING</span></div>
+              <div id="success" class="success-overlay" hidden><span class="success-kicker">NICE CATCH!</span><h2>その一手で、<br>ついに。</h2><p id="success-detail"></p><button id="play-again">もう一度チャレンジ <i data-lucide="arrow-up-right"></i></button></div>
+              <div class="stage-bottom"><span class="view-hint"><i data-lucide="move"></i>ドラッグで視点を回転</span><span class="engine-label">3D RIGID BODY SIMULATION</span></div>
+            </div>
+            <div class="camera-toolbar"><span class="toolbar-label"><i data-lucide="camera"></i><span>視点</span></span><div class="camera-options" aria-label="カメラの切り替え"><button data-camera="perspective" class="selected" aria-pressed="true">斜め</button><button data-camera="front" aria-pressed="false">正面</button><button data-camera="side" aria-pressed="false">側面</button><button data-camera="top" aria-pressed="false">真上</button></div><button class="guide-button" id="guide-button" aria-pressed="true"><i data-lucide="crosshair"></i><span>ガイド ON</span></button></div>
+          </section>
+
+          <aside class="control-panel" aria-label="操作パネル">
+            <div class="control-heading"><p class="eyebrow">CONTROL PANEL</p><button class="icon-button settings-button" data-dialog="settings" title="設定" aria-label="設定"><i data-lucide="sliders-horizontal"></i></button></div>
+            <div class="control-title"><h2>狙って、ずらす。</h2><p>箱の端を狙うと、重心が動く。</p></div>
+            <div class="attempt-row"><div><span class="stat-label">TRY COUNT</span><span class="attempt-number" id="attempt-count">00<span>回</span></span></div><div class="best-stat"><span class="stat-label">YOUR BEST</span><span id="best-count">—<small>回</small></span></div></div>
+            <div class="aim-section"><div class="section-caption"><span><b>01</b> アームの位置を合わせる</span><span class="key-label">W A S D / ↑ ↓ ← →</span></div>
+              <div class="direction-pad" aria-label="アーム移動"><button class="direction up" data-move="forward" aria-label="奥へ移動"><i data-lucide="chevron-up"></i><span>奥</span></button><button class="direction left" data-move="left" aria-label="左へ移動"><i data-lucide="chevron-left"></i></button><span class="pad-center"><i data-lucide="crosshair"></i></span><button class="direction right" data-move="right" aria-label="右へ移動"><i data-lucide="chevron-right"></i></button><button class="direction down" data-move="back" aria-label="手前へ移動"><span>手前</span><i data-lucide="chevron-down"></i></button></div>
+              <div class="position-readout"><span>X <b id="position-x">0.00</b></span><span class="position-line"></span><span>Z <b id="position-z">0.00</b></span></div>
+            </div>
+            <div class="catch-section"><div class="section-caption"><span><b>02</b> 狙いが決まったら</span></div><button id="catch-button" class="catch-button" disabled><i data-lucide="arrow-down-to-line"></i><span id="catch-label">キャッチする</span><kbd>SPACE</kbd></button><p id="turn-message" aria-live="polite">位置は何度でも調整できます</p></div>
+            <div class="reset-section"><button id="reset-button"><i data-lucide="rotate-ccw"></i>景品を置き直す</button><button data-dialog="help" aria-label="遊び方を見る"><i data-lucide="circle-help"></i></button></div>
+          </aside>
+        </div>
+        <div class="bottom-notes"><div class="strategy-note"><span class="tip-label">ONE POINT</span><p>真ん中より、<strong>端を狙う。</strong><span>少しずつ傾けて、バーの間に落とそう。</span></p><i data-lucide="arrow-up-right"></i></div><div class="physics-note"><span class="physics-icon"><i data-lucide="box"></i></span><span>摩擦・重心・接触をシミュレーション<small>POWERED BY THREE.JS + RAPIER</small></span></div></div>
+        <footer><span>HASHI. <span class="footer-jp">一手を楽しむ、クレーンシミュレーター。</span></span><span>PLAY. SHIFT. REPEAT.</span></footer>
+      </main>
+    </div>
+    <div class="rotate-notice"><i data-lucide="smartphone"></i><h2>横向きで、プレイしよう。</h2><p>スマートフォンを横にすると<br>筐体と操作パネルを一緒に見られます。</p></div>
+    <dialog id="help-dialog"><button class="dialog-close" aria-label="閉じる"><i data-lucide="x"></i></button><p class="eyebrow">HOW TO PLAY</p><h2>少しずつが、近道。</h2><p>2本のバーに渡された箱を、アームで動かして落とすゲームです。1回で取れなくても、動かした箱の位置はそのまま。次の一手を考えましょう。</p><ol class="help-steps"><li><span>01</span><div><strong>視点を変えて、狙う</strong><p>矢印ボタンの長押し、またはWASD・矢印キーで移動。「真上」で奥行き、「正面」で左右を確認できます。</p></div></li><li><span>02</span><div><strong>キャッチする</strong><p>ボタンまたはSpaceキーで下降。アームが閉じて持ち上がり、自動で開きます。操作中は箱の動きを観察しましょう。</p></div></li><li><span>03</span><div><strong>端をずらして、獲得</strong><p>端を狙って片側を浮かせたり、箱を斜めに回したり。箱がバーより下に落ちると獲得です。</p></div></li></ol><p class="help-footnote">無料・回数制限なし。Rキーで景品を置き直せます。スマートフォンは横持ちで操作してください。</p><button class="dialog-primary" id="help-done">プレイに戻る <i data-lucide="arrow-right"></i></button></dialog>
+    <dialog id="settings-dialog"><button class="dialog-close" aria-label="閉じる"><i data-lucide="x"></i></button><p class="eyebrow">MACHINE SETTINGS</p><h2>自分のペースで。</h2><label class="setting-row"><span><strong>サウンド</strong><small>移動音・キャッチ音を再生</small></span><input type="checkbox" id="sound-setting" role="switch"></label><label class="setting-row"><span><strong>照準ガイド</strong><small>アームの真下にマーカーを表示</small></span><input type="checkbox" id="guide-setting" checked role="switch"></label><label class="setting-row"><span><strong>描画品質</strong><small>動作が重い場合は「軽量」を選択</small></span><select id="quality-setting"><option value="auto">標準</option><option value="low">軽量</option></select></label><div class="setting-note"><i data-lucide="info"></i><p>景品は剛体として計算します。アームの力には上限があり、掛かり方によって滑り落ちます。</p></div></dialog>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
