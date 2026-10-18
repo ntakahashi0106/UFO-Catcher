@@ -56,8 +56,14 @@ document.addEventListener('fullscreenchange', () => { $('#fullscreen-button').in
 document.querySelectorAll('[data-camera]').forEach(b => b.addEventListener('click', () => { view?.setCamera(b.dataset.camera); document.querySelectorAll('[data-camera]').forEach(c => { c.classList.toggle('selected', b === c); c.setAttribute('aria-pressed', String(b === c)); }); }));
 
 const keyMap = { ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right', ArrowUp:'forward', KeyW:'forward', ArrowDown:'back', KeyS:'back' };
+function nudge(direction, amount = .035) {
+  if (!ready || phase !== 'aim') return;
+  if (direction === 'left' || direction === 'right') aim.x = Math.max(-CONFIG.moveLimit.x, Math.min(CONFIG.moveLimit.x, aim.x + (direction === 'right' ? amount : -amount)));
+  else aim.z = Math.max(-CONFIG.moveLimit.z, Math.min(CONFIG.moveLimit.z, aim.z + (direction === 'back' ? amount : -amount)));
+}
 document.querySelectorAll('[data-move]').forEach(b => {
-  b.addEventListener('pointerdown', e => { if (phase !== 'aim' || !ready) return; e.preventDefault(); audio.unlock(); b.setPointerCapture(e.pointerId); held.add(b.dataset.move); b.classList.add('active'); });
+  b.addEventListener('pointerdown', e => { if (phase !== 'aim' || !ready) return; e.preventDefault(); audio.unlock(); b.setPointerCapture(e.pointerId); nudge(b.dataset.move); held.add(b.dataset.move); b.classList.add('active'); });
+  b.addEventListener('click', e => { if (e.detail === 0) nudge(b.dataset.move); });
   const release = () => { held.delete(b.dataset.move); b.classList.remove('active'); };
   b.addEventListener('pointerup', release); b.addEventListener('pointercancel', release); b.addEventListener('lostpointercapture', release);
   b.addEventListener('contextmenu', e => e.preventDefault());
@@ -65,7 +71,7 @@ document.querySelectorAll('[data-move]').forEach(b => {
 window.addEventListener('keydown', e => {
   if (document.querySelector('dialog[open]') || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
   const move = keyMap[e.code];
-  if (move) { e.preventDefault(); if (phase === 'aim' && ready) { held.add(move); document.querySelector(`[data-move="${move}"]`).classList.add('active'); } }
+  if (move) { e.preventDefault(); if (phase === 'aim' && ready) { if (!e.repeat && !held.has(move)) nudge(move, .025); held.add(move); document.querySelector(`[data-move="${move}"]`).classList.add('active'); } }
   if (e.code === 'Space' && !e.repeat) { e.preventDefault(); startCatch(); }
   if (e.code === 'KeyR' && !e.repeat) reset();
 });
