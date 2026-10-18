@@ -21,6 +21,18 @@ npm run preview
 
 `dist/`は静的ホスティングにそのまま配置できます。
 
+## GitHub Pagesで公開
+
+このゲームはサーバーを必要とせず、GitHub Pagesで公開できます。GitHub Freeでは公開リポジトリを使用します。
+
+1. リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定します。
+2. `main` または `master` へプッシュすると、`.github/workflows/pages.yml` が依存関係のインストール、物理テスト、ビルドを実行します。既定ブランチの成果物が公開されます。
+3. **Actions → Deploy game to GitHub Pages** の完了後、**Settings → Pages** に表示されるURLを開きます。手動で再公開する場合は **Run workflow** を実行します。
+
+URLは通常 `https://<ユーザー名>.github.io/<リポジトリ名>/` です。ビルド時のアセット参照を相対パスにしているため、リポジトリ名を変更しても同じワークフローを使用できます。スマートフォンでもURLを開き、横持ちでプレイしてください。以降は既定ブランチへのプッシュで自動更新されます。
+
+設定の詳細は[GitHub Pages公式ドキュメント](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)を参照してください。
+
 ## 操作
 
 | 操作 | PC | スマートフォン（横持ち） |
