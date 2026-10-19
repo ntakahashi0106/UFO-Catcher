@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { CONFIG } from './config.js';
+import { CLAW, clawAngle, clawPivot, clawPose, fingerSegments } from './claw.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const vector = ({ x, y, z }) => ({ x, y, z });
@@ -7,15 +8,7 @@ const rotation = ({ x, y, z, w }) => ({ x, y, z, w });
 const identity = { x: 0, y: 0, z: 0, w: 1 };
 let initialization;
 
-// Shapes in finger-local coordinates. Kept explicit so scene geometry and contact
-// geometry agree; the narrow, rounded spoons can actually slide under the carton.
-export const FINGER_GEOMETRY = {
-  shaft: { half: { x: 0.025, y: 0.275, z: 0.035 }, y: -0.275, x: 0.055 },
-  spoon: { half: { x: 0.09, y: 0.028, z: 0.065 }, y: -0.60, x: -0.055 },
-  pivotDrop: 0.025,
-  openWidth: 0.63,
-  closedWidth: 0.22,
-};
+export const FINGER_GEOMETRY = CLAW;
 
 /** A metre/kilogram/second simulation. Prize motion is exclusively Rapier motion. */
 export async function createPhysics() {
@@ -24,7 +17,7 @@ export async function createPhysics() {
 
   const world = new RAPIER.World({ x: 0, y: CONFIG.gravity, z: 0 });
   world.timestep = CONFIG.fixedStep;
-  world.numSolverIterations = 12;
+  world.numSolverIterations = 20;
   world.numInternalPgsIterations = 2;
   let elapsed = 0;
   let accumulator = 0;
@@ -33,6 +26,12 @@ export async function createPhysics() {
   let contact = false;
   let difficulty = 'normal';
   let target = { ...CONFIG.home, open: 1 };
+
+  // The carriage is driven, but each arm is a separate rigid body permanently
+  // pinned to it. A revolute joint removes translation and out-of-plane motion;
+  // only rotation about the real Z-axis hinge remains free.
+  const head = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased()
+    .setTranslation(target.x, target.y, target.z));
 
   const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
   const floorCollider = world.createCollider(
@@ -77,31 +76,40 @@ export async function createPhysics() {
   );
 
   const fingers = [-1, 1].map((side) => {
+    const pose = clawPose(target, side, target.open);
     const body = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(target.x + side * FINGER_GEOMETRY.openWidth,
-          target.y - FINGER_GEOMETRY.pivotDrop, target.z)
+        .setTranslation(pose.position.x, pose.position.y, pose.position.z)
+        .setRotation(pose.quaternion)
         .setCcdEnabled(true).setCanSleep(false)
-        .setLinearDamping(0.25).setAngularDamping(1)
-        .setAdditionalSolverIterations(8),
+        .setLinearDamping(0.05).setAngularDamping(0.15)
+        .setAdditionalSolverIterations(20),
     );
-    const shaft = FINGER_GEOMETRY.shaft;
-    const spoon = FINGER_GEOMETRY.spoon;
-    const shaftCollider = world.createCollider(
-      RAPIER.ColliderDesc.roundCuboid(shaft.half.x - 0.007,
-        shaft.half.y - 0.007, shaft.half.z - 0.007, 0.007)
-        .setTranslation(side * shaft.x, shaft.y, 0)
-        .setMass(0.072).setFriction(0.31).setRestitution(0)
-        .setCollisionGroups(0x0001ffff), body,
-    );
+    const colliders = fingerSegments(side).map((segment) => world.createCollider(
+      RAPIER.ColliderDesc.roundCuboid(segment.size.x / 2 - 0.006,
+        segment.size.y / 2 - 0.006, segment.size.z / 2 - 0.006, 0.006)
+        .setTranslation(segment.position.x, segment.position.y, segment.position.z)
+        .setRotation(segment.quaternion)
+        .setMass(0.036).setFriction(0.31).setRestitution(0)
+        .setCollisionGroups(0x0001fffe), body,
+    ));
+    const spoon = CLAW.spoon;
     const spoonCollider = world.createCollider(
-      RAPIER.ColliderDesc.roundCuboid(spoon.half.x - 0.009,
-        spoon.half.y - 0.009, spoon.half.z - 0.009, 0.009)
-        .setTranslation(side * spoon.x, spoon.y, 0)
+      RAPIER.ColliderDesc.roundCuboid(spoon.size.x / 2 - spoon.radius,
+        spoon.size.y / 2 - spoon.radius, spoon.size.z / 2 - spoon.radius, spoon.radius)
+        .setTranslation(side * spoon.center.x, spoon.center.y, spoon.center.z)
         .setMass(0.023).setFriction(0.30).setRestitution(0)
-        .setCollisionGroups(0x0001ffff), body,
+        .setCollisionGroups(0x0001fffe), body,
     );
-    return { side, body, colliders: [shaftCollider, spoonCollider] };
+    colliders.push(spoonCollider);
+    const joint = world.createImpulseJoint(RAPIER.JointData.revolute(
+      { x: side * CLAW.pivotX, y: -CLAW.pivotDrop, z: 0 },
+      { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }), head, body, true);
+    joint.setContactsEnabled(false);
+    // Closing is compliant past zero rather than an infinitely strong closed
+    // stop. Under a load an arm may rotate and let the carton slide free.
+    joint.setLimits(side < 0 ? -0.82 : -0.35, side < 0 ? 0.35 : 0.82);
+    return { side, body, joint, colliders, motorTorque: 0, maxTorque: 0 };
   });
 
   function resetBody(body, position, quaternion = identity) {
@@ -124,12 +132,14 @@ export async function createPhysics() {
       z: 0,
     });
     target = { ...CONFIG.home, open: 1 };
-    for (const { side, body } of fingers) {
-      resetBody(body, {
-        x: target.x + side * FINGER_GEOMETRY.openWidth,
-        y: target.y - FINGER_GEOMETRY.pivotDrop,
-        z: target.z,
-      });
+    resetBody(head, target);
+    head.setNextKinematicTranslation(target);
+    for (const finger of fingers) {
+      const { side, body } = finger;
+      const pose = clawPose(target, side, target.open);
+      resetBody(body, pose.position, pose.quaternion);
+      finger.motorTorque = 0;
+      finger.maxTorque = 0;
     }
     won = false;
     contact = false;
@@ -146,36 +156,43 @@ export async function createPhysics() {
     };
   }
 
-  function driveFinger({ side, body }) {
-    const width = FINGER_GEOMETRY.closedWidth +
-      (FINGER_GEOMETRY.openWidth - FINGER_GEOMETRY.closedWidth) * target.open;
-    const desired = { x: target.x + side * width, y: target.y - FINGER_GEOMETRY.pivotDrop, z: target.z };
-    const p = body.translation();
-    const v = body.linvel();
+  function driveFinger(finger) {
+    const { side, body } = finger;
     const strength = difficulty === 'easy' ? 1.12 : difficulty === 'hard' ? 0.88 : 1;
-
-    // Independent, force-limited motors rather than kinematic colliders or a
-    // welded prize. A jammed finger yields; a supported box can slip and turn.
-    const force = {
-      x: clamp((clamp((desired.x - p.x) * 16, -0.85, 0.85) - v.x) * 5.1, -2.1 * strength, 2.1 * strength),
-      y: clamp((clamp((desired.y - p.y) * 18, -0.65, 0.65) - v.y) * 5.8 - CONFIG.gravity * body.mass(), -3.0, 2.65 * strength),
-      z: clamp((clamp((desired.z - p.z) * 16, -0.85, 0.85) - v.z) * 5.1, -3.0, 3.0),
-    };
-    body.resetForces(false);
-    body.addForce(force, true);
-
     const q = body.rotation();
-    const av = body.angvel();
-    const sign = q.w < 0 ? -1 : 1;
+    const angle = 2 * Math.atan2(q.z, q.w);
+    const desired = clawAngle(side, target.open);
+    const error = Math.atan2(Math.sin(desired - angle), Math.cos(desired - angle));
+    const gravityTorque = CONFIG.gravity * body.mass() * (body.worldCom().x - body.translation().x);
+    // Rapier's JS joint motor has no force-cap API in this package version.
+    // Apply an explicitly bounded physical torque instead. No translational
+    // spring and no pose correction can pull an arm away from its joint.
+    // Opening has a stronger actuator so a loaded bent spoon can rotate up and
+    // out without permanently trapping the box. Closing remains deliberately
+    // weak; both directions still have finite torque and angular speed.
+    const opening = target.open > 0.5;
+    const limit = (opening ? 1.8 : 0.27) * strength;
+    const angularVelocity = clamp(error * 7, -1.2, 1.2);
+    const torque = clamp((angularVelocity - body.angvel().z) * (opening ? 1.2 : 0.35) - gravityTorque, -limit, limit);
     body.resetTorques(false);
-    body.addTorque({
-      x: clamp(-q.x * sign * 6 - av.x * 0.34, -0.50, 0.50),
-      y: clamp(-q.y * sign * 6 - av.y * 0.34, -0.50, 0.50),
-      z: clamp(-q.z * sign * 6 - av.z * 0.34, -0.50, 0.50),
-    }, true);
+    body.addTorque({ x: 0, y: 0, z: torque }, true);
+    finger.motorTorque = torque;
+    finger.maxTorque = limit;
   }
 
   function tick() {
+    const wasContact = contact;
+    // Position-based kinematics supply the correct carriage velocity to joints
+    // and contacts instead of teleporting the finger bodies every frame.
+    const current = head.translation();
+    const dx = target.x - current.x, dy = target.y - current.y, dz = target.z - current.z;
+    const distance = Math.hypot(dx, dy, dz);
+    const fraction = distance > 0 ? Math.min(1, 1.5 * CONFIG.fixedStep / distance) : 1;
+    head.setNextKinematicTranslation({
+      x: current.x + dx * fraction,
+      y: current.y + dy * fraction,
+      z: current.z + dz * fraction,
+    });
     fingers.forEach(driveFinger);
     world.step();
     elapsed += CONFIG.fixedStep;
@@ -187,6 +204,10 @@ export async function createPhysics() {
         });
       }
     }
+    // A carton can sleep while resting on the spoons. Removing that support
+    // must wake it so gravity resumes; a sleeping carton must not float in air.
+    // Cartons resting independently on the bars or floor may still sleep.
+    if (wasContact && !contact) prize.wakeUp();
     // A vertical carton reaches the tray with COM higher than a flat carton.
     // Require actual tray contact instead of an arbitrary COM-height shortcut.
     const p = prize.translation();
@@ -207,16 +228,21 @@ export async function createPhysics() {
   }
 
   function getState() {
-    const poses = fingers.map(({ side, body }) => {
+    const headPosition = vector(head.translation());
+    const poses = fingers.map(({ side, body, motorTorque, maxTorque }) => {
       const p = vector(body.translation());
       const q = rotation(body.rotation());
       // Transform the spoon's lower centre into world space for UI/debug views.
-      const local = { x: side * FINGER_GEOMETRY.spoon.x, y: FINGER_GEOMETRY.spoon.y, z: 0 };
+      const local = { x: side * CLAW.spoon.center.x, y: CLAW.spoon.center.y, z: 0 };
       const ix = q.w * local.x + q.y * local.z - q.z * local.y;
       const iy = q.w * local.y + q.z * local.x - q.x * local.z;
       const iz = q.w * local.z + q.x * local.y - q.y * local.x;
       const iw = -q.x * local.x - q.y * local.y - q.z * local.z;
-      return { side, position: p, quaternion: q, tip: {
+      const hinge = clawPivot(headPosition, side);
+      return { side, position: p, quaternion: q, hinge,
+        angle: 2 * Math.atan2(q.z, q.w), targetAngle: clawAngle(side, target.open),
+        anchorError: Math.hypot(p.x - hinge.x, p.y - hinge.y, p.z - hinge.z),
+        motorTorque, maxTorque, tip: {
         x: p.x + ix * q.w - iw * q.x - iy * q.z + iz * q.y,
         y: p.y + iy * q.w - iw * q.y - iz * q.x + ix * q.z,
         z: p.z + iz * q.w - iw * q.z - ix * q.y + iy * q.x,
@@ -228,7 +254,7 @@ export async function createPhysics() {
         velocity: vector(prize.linvel()), angularVelocity: vector(prize.angvel()),
         sleeping: prize.isSleeping(),
       },
-      claw: { position: { x: target.x, y: target.y, z: target.z }, open: target.open, fingers: poses },
+      claw: { position: headPosition, open: target.open, fingers: poses },
       won, contact, elapsed,
     };
   }

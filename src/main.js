@@ -1,6 +1,7 @@
 import './style.css';
 import { createIcons, ArrowUpRight, ArrowRight, ArrowDownToLine, VolumeX, Volume2, Maximize, Minimize, Infinity, Move, Camera, Crosshair, SlidersHorizontal, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, CircleHelp, Box, Smartphone, X, Info } from 'lucide';
 import { CONFIG } from './config.js';
+import { CLAW } from './claw.js';
 import { createPhysics } from './physics.js';
 import { createScene } from './scene.js';
 
@@ -115,7 +116,7 @@ function tick(dt) {
     aim.z = Math.max(-CONFIG.moveLimit.z, Math.min(CONFIG.moveLimit.z, aim.z + dz * speed * dt));
     claw = { x: aim.x, y: CONFIG.home.y, z: aim.z, open: 1 };
   } else if (phase === 'descend') {
-    claw.y = lerp(phaseStart.y, 1.78, smooth(elapsed / 1.8));
+    claw.y = lerp(phaseStart.y, CLAW.lowerHeadY, smooth(elapsed / 1.8));
     if (elapsed >= 1.8) setPhase('close');
   } else if (phase === 'close') {
     claw.open = lerp(1, 0, smooth(elapsed / 1.1));

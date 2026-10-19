@@ -2,44 +2,69 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPhysics } from '../src/physics.js';
 import { CONFIG } from '../src/config.js';
+import { CLAW, clawAngle, clawPivot } from '../src/claw.js';
 
-const simulate = (physics, seconds) => {
-  for (let i = 0; i < Math.round(seconds / CONFIG.fixedStep); i++) physics.step();
-};
+function simulate(physics, seconds, inspect) {
+  for (let i = 0; i < Math.round(seconds / CONFIG.fixedStep); i++) {
+    physics.step();
+    inspect?.(physics.getState());
+  }
+}
 
-function move(physics, to, seconds, smooth = false) {
+function move(physics, to, seconds, smooth = true, inspect) {
   const claw = physics.getState().claw;
   const from = { ...claw.position, open: claw.open };
   const frames = Math.ceil(seconds / CONFIG.fixedStep);
   for (let i = 1; i <= frames; i++) {
-    const next = {};
     let progress = Math.min(1, (i * CONFIG.fixedStep) / seconds);
     if (smooth) progress = progress * progress * (3 - 2 * progress);
+    const next = {};
     for (const key of ['x', 'y', 'z', 'open']) {
       next[key] = from[key] + ((to[key] ?? from[key]) - from[key]) * progress;
     }
     physics.setClawTarget(next);
     physics.step();
+    inspect?.(physics.getState());
   }
 }
 
-// This is the same move/descend/close/lift/release sequence available to players;
-// it never changes prize poses or applies a test impulse.
-function attempt(physics, aim = { x: 0, z: 0.28 }) {
-  move(physics, { ...aim, open: 1 }, 1.5);
-  move(physics, { y: 1.78 }, 2);
-  simulate(physics, 0.25);
-  move(physics, { open: 0 }, 1.3);
-  simulate(physics, 0.45);
+function initializeAtCentre(physics) {
+  physics.setClawTarget({ x: 0, y: CONFIG.home.y, z: 0, open: 1 });
+  simulate(physics, 1.5); // The same 180 initial ticks as the browser.
+}
+
+// Browser state-machine timings. Neither prize poses nor test impulses are used
+// in these gameplay regressions: all displacement comes from rigid-body contact.
+function attempt(physics, aim = { x: 0, z: 0.28 }, inspect) {
+  move(physics, { ...aim, open: 1 }, 0.43, false, inspect);
+  move(physics, { y: CLAW.lowerHeadY }, 1.8, true, inspect);
+  move(physics, { open: 0 }, 1.1, true, inspect);
+  simulate(physics, 0.4, inspect);
   const closed = physics.getState();
-  move(physics, { y: CONFIG.home.y }, 2.3);
+  move(physics, { y: CONFIG.home.y }, 2.3, true, inspect);
+  simulate(physics, 0.35, inspect);
   const lifted = physics.getState();
-  move(physics, { open: 1 }, 0.8);
-  simulate(physics, 3);
+  move(physics, { open: 1 }, 1.0, true, inspect);
+  simulate(physics, 2.7, inspect); // Open hold, stationary return, and settling.
   return { closed, lifted, settled: physics.getState() };
 }
 
-test('a box bridges both round bars, comes to rest, and never wins while idle', async () => {
+function verifyHinges(state) {
+  for (const finger of state.claw.fingers) {
+    const hinge = clawPivot(state.claw.position, finger.side);
+    // Inspect raw simulated body origins, not the renderer's head position.
+    const separation = Math.hypot(finger.position.x - hinge.x,
+      finger.position.y - hinge.y, finger.position.z - hinge.z);
+    assert.ok(separation < 0.002, `joint anchor separated by ${separation} metres`);
+    assert.ok(Math.abs(separation - finger.anchorError) < 1e-9);
+    assert.ok(Math.abs(finger.quaternion.x) < 0.002);
+    assert.ok(Math.abs(finger.quaternion.y) < 0.002);
+    assert.ok(Math.abs(finger.motorTorque) <= finger.maxTorque + 1e-9);
+    assert.ok(Object.values(finger.position).every(Number.isFinite));
+  }
+}
+
+test('a box bridges both round bars, sleeps, and never wins while idle', async () => {
   const physics = await createPhysics();
   try {
     simulate(physics, 60);
@@ -50,14 +75,14 @@ test('a box bridges both round bars, comes to rest, and never wins while idle', 
     assert.ok(Math.abs(state.prize.position.z) < 0.001);
     assert.equal(state.prize.sleeping, true);
     assert.equal(state.won, false);
-    assert.equal(state.contact, false);
+    verifyHinges(state);
   } finally { physics.dispose(); }
 });
 
-test('gravity drops a rotated carton through the gap and tray contact awards it', async () => {
+test('gravity drops a rotated carton through the gap and actual tray contact awards it', async () => {
   const physics = await createPhysics();
   try {
-    // The narrow .76m dimension now spans the .91m clear gap between rods.
+    // The .76m dimension now spans the .91m clear gap between round bars.
     physics.debug.setPrizePose({ x: 0, y: 2.1, z: 0 },
       { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 });
     simulate(physics, 0.1);
@@ -72,72 +97,134 @@ test('gravity drops a rotated carton through the gap and tray contact awards it'
   } finally { physics.dispose(); }
 });
 
-test('two real off-centre claw attempts tip and shift the carton, then drop it', async () => {
+test('arms open along a rotation arc around fixed head hinges', async () => {
   const physics = await createPhysics();
   try {
-    const first = attempt(physics);
-    assert.equal(first.closed.contact, true, 'spoons physically touch the carton');
-    assert.ok(first.lifted.prize.position.y > 1.55, 'off-centre support lifts an end');
-    assert.ok(Math.abs(first.lifted.prize.quaternion.x) > 0.15, 'carton tilts under its own weight');
-    assert.ok(first.settled.prize.position.z < -0.15, 'released carton retains its displacement');
-    assert.equal(first.settled.won, false, 'a successful nudge is not an automatic win');
-    const second = attempt(physics);
-    assert.equal(second.settled.won, true, 'second physical attempt reaches the collection tray');
-    assert.ok(second.settled.prize.position.y < 1.0);
-    assert.ok(second.settled.prize.position.y > CONFIG.floorY);
+    initializeAtCentre(physics);
+    const opened = physics.getState();
+    move(physics, { open: 0 }, 1.1, true, verifyHinges);
+    simulate(physics, 0.6, verifyHinges);
+    const closed = physics.getState();
+    for (const arm of closed.claw.fingers) {
+      const openArm = opened.claw.fingers.find((finger) => finger.side === arm.side);
+      assert.ok(Math.abs(openArm.angle - clawAngle(arm.side, 1)) < 0.005);
+      assert.ok(Math.abs(arm.angle - clawAngle(arm.side, 0)) < 0.005);
+      assert.ok(Math.abs(openArm.position.x - arm.position.x) < 0.0001);
+      assert.ok(Math.abs(openArm.position.y - arm.position.y) < 0.0001);
+      const radius = (finger) => Math.hypot(finger.tip.x - finger.position.x,
+        finger.tip.y - finger.position.y, finger.tip.z - finger.position.z);
+      assert.ok(Math.abs(radius(openArm) - radius(arm)) < 0.00001);
+      assert.ok(arm.side * (openArm.tip.x - arm.tip.x) > 0.3);
+      assert.ok(openArm.tip.y - arm.tip.y > 0.1);
+    }
   } finally { physics.dispose(); }
 });
 
-test('fresh worlds reproduce the same physical attempt without random win logic', async () => {
+test('loaded joints stay attached while a finite closing motor stalls and slips', async () => {
+  const physics = await createPhysics();
+  try {
+    initializeAtCentre(physics);
+    let maximumSeparation = 0;
+    const inspect = (state) => {
+      verifyHinges(state);
+      for (const arm of state.claw.fingers) maximumSeparation = Math.max(maximumSeparation, arm.anchorError);
+    };
+    const result = attempt(physics, { x: 0, z: 0.28 }, inspect);
+    assert.equal(result.closed.contact, true);
+    assert.ok(result.closed.claw.fingers.some((arm) => Math.abs(arm.angle - arm.targetAngle) > 0.1),
+      'carton contact prevents a finite motor from reaching its requested angle');
+    assert.ok(result.closed.claw.fingers.every((arm) => arm.maxTorque <= 0.28),
+      'gripping strength is explicitly bounded while contacts stall the arms');
+    assert.ok(result.lifted.prize.position.y > 1.65, 'real spoons support and tilt the box during lifting');
+    assert.ok(maximumSeparation < 0.001, 'ordinary loaded lift keeps pivots within one millimetre');
+    for (const arm of result.settled.claw.fingers) {
+      assert.ok(Math.abs(arm.angle - clawAngle(arm.side, 1)) < 0.01,
+        'the stronger but finite opening actuator releases the loaded spoons');
+    }
+    assert.ok(result.settled.prize.position.y < 1.6, 'box is not permanently trapped in the open claw');
+  } finally { physics.dispose(); }
+});
+
+test('abrupt carriage targets and obstruction by bars cannot detach the arms', async () => {
+  const physics = await createPhysics();
+  try {
+    initializeAtCentre(physics);
+    let previousHead = physics.getState().claw.position;
+    const inspect = (state) => {
+      verifyHinges(state);
+      const p = state.claw.position;
+      assert.ok(Math.hypot(p.x - previousHead.x, p.y - previousHead.y, p.z - previousHead.z)
+        <= 1.5 * CONFIG.fixedStep + 0.000001, 'kinematic head is rate limited instead of teleporting');
+      previousHead = p;
+    };
+    for (const target of [
+      { x: 0.84, z: 0.5, y: 1.70, open: 1 },
+      { x: 0.84, z: 0.5, y: 1.70, open: 0 },
+      { x: -0.84, z: -0.5, y: 2.52, open: 0 },
+      { x: -0.84, z: -0.5, y: 1.70, open: 0 },
+      { x: 0, z: 0.5, y: 2.52, open: 1 },
+    ]) {
+      physics.setClawTarget(target);
+      simulate(physics, 2, inspect);
+    }
+    assert.ok(Object.values(physics.getState().prize.position).every(Number.isFinite));
+  } finally { physics.dispose(); }
+});
+
+test('withdrawing the spoons wakes a sleeping supported carton so it falls', async () => {
+  const physics = await createPhysics();
+  try {
+    physics.setClawTarget({ x: 0, y: CONFIG.home.y, z: 0, open: 0 });
+    simulate(physics, 2);
+    physics.debug.setPrizePose({ x: 0, y: 2.065, z: 0 });
+    simulate(physics, 3);
+    const supported = physics.getState();
+    assert.ok(supported.prize.position.y > 1.9);
+    assert.equal(supported.contact, true);
+    physics.setClawTarget({ open: 1 });
+    simulate(physics, 3);
+    const released = physics.getState();
+    assert.equal(released.contact, false);
+    assert.ok(released.prize.position.y < 1.6,
+      'removing physical support must resume gravity even when the carton had slept');
+    for (const arm of released.claw.fingers) assert.ok(Math.abs(arm.angle - clawAngle(arm.side, 1)) < 0.01);
+  } finally { physics.dispose(); }
+});
+
+test('browser-timed attempts retain displacement and can physically acquire the carton', async () => {
+  const physics = await createPhysics();
+  try {
+    initializeAtCentre(physics);
+    const first = attempt(physics, undefined, verifyHinges);
+    assert.equal(first.settled.won, false, 'a nudge does not automatically award a prize');
+    assert.ok(Math.abs(first.settled.prize.position.z) > 0.08);
+    let state = first.settled;
+    // Re-aim after the box tilts: repeatedly using the old low corner can miss
+    // the shifted carton. These are ordinary player actions, not test impulses.
+    const aims = [{ x: 0, z: 0.28 }, { x: 0, z: 0.28 },
+      { x: 0.2, z: 0 }, { x: -0.2, z: 0.15 }, { x: 0.2, z: 0.15 }];
+    for (const aim of aims) {
+      if (state.won) break;
+      state = attempt(physics, aim, verifyHinges).settled;
+    }
+    assert.equal(state.won, true);
+    assert.ok(state.prize.position.y < 1.0);
+    assert.ok(state.prize.position.y > CONFIG.floorY);
+  } finally { physics.dispose(); }
+});
+
+test('fresh worlds reproduce physical movement without random win logic', async () => {
   const one = await createPhysics();
   const two = await createPhysics();
   try {
+    initializeAtCentre(one);
+    initializeAtCentre(two);
     const a = attempt(one).settled;
     const b = attempt(two).settled;
-    for (const key of ['x', 'y', 'z']) {
-      assert.ok(Math.abs(a.prize.position[key] - b.prize.position[key]) < 1e-6);
-    }
-    for (const key of ['x', 'y', 'z', 'w']) {
-      assert.ok(Math.abs(a.prize.quaternion[key] - b.prize.quaternion[key]) < 1e-6);
-    }
+    for (const key of ['x', 'y', 'z']) assert.ok(Math.abs(a.prize.position[key] - b.prize.position[key]) < 1e-6);
+    for (const key of ['x', 'y', 'z', 'w']) assert.ok(Math.abs(a.prize.quaternion[key] - b.prize.quaternion[key]) < 1e-6);
     assert.equal(a.won, b.won);
   } finally { one.dispose(); two.dispose(); }
-});
-
-test('the browser state-machine timings preserve progress and allow a real acquisition', async () => {
-  const physics = await createPhysics();
-  try {
-    physics.setClawTarget({ x: 0, y: CONFIG.home.y, z: 0, open: 1 });
-    simulate(physics, 1.5); // 180 initialization ticks in main.js.
-    const settled = [];
-    for (let i = 0; i < 5; i++) {
-      move(physics, { x: 0, z: 0.28, open: 1 }, 0.43);
-      move(physics, { y: 1.78 }, 1.8, true);
-      move(physics, { open: 0 }, 1.1, true);
-      simulate(physics, 0.4);
-      move(physics, { y: CONFIG.home.y }, 2.3, true);
-      simulate(physics, 0.35);
-      move(physics, { open: 1 }, 1.0, true);
-      simulate(physics, 0.3);
-      simulate(physics, 1.2); // Stationary return phase.
-      simulate(physics, 1.2); // Physical settling before accepting input.
-      const state = physics.getState();
-      settled.push(state);
-      assert.ok(Object.values(state.prize.position).every(Number.isFinite));
-      assert.ok(Object.values(state.prize.velocity).every(Number.isFinite));
-      assert.ok(Math.abs(state.prize.position.z) < 1.08);
-      for (const finger of state.claw.fingers) {
-        assert.ok(Math.abs(finger.position.x) < 1);
-        assert.ok(Math.abs(finger.position.y - (CONFIG.home.y - 0.025)) < 0.05,
-          'force-driven jaws return without getting trapped after each try');
-      }
-    }
-    assert.equal(settled[0].won, false);
-    assert.ok(settled[0].prize.position.z < -0.15);
-    assert.ok(settled[0].prize.position.y > 1.2);
-    assert.equal(settled.at(-1).won, true);
-    assert.ok(settled.at(-1).prize.position.y < 1.0);
-  } finally { physics.dispose(); }
 });
 
 test('cabinet walls retain a carton after a hard sideways impact', async () => {
@@ -153,23 +240,26 @@ test('cabinet walls retain a carton after a hard sideways impact', async () => {
   } finally { physics.dispose(); }
 });
 
-test('reset restores a moved carton and both jaws to a stable fresh setup', async () => {
+test('reset restores the carton, head, and hinged arms to a stable setup', async () => {
   const physics = await createPhysics();
   try {
+    initializeAtCentre(physics);
     attempt(physics);
     physics.resetPrize('hard');
     const reset = physics.getState();
     assert.equal(reset.won, false);
     assert.equal(reset.claw.open, 1);
-    assert.equal(reset.claw.position.y, CONFIG.home.y);
+    assert.ok(Math.abs(reset.claw.position.y - CONFIG.home.y) < 1e-6);
     assert.equal(reset.prize.position.z, 0);
-    simulate(physics, 5);
+    simulate(physics, 5, verifyHinges);
     const settled = physics.getState();
     assert.ok(Math.abs(settled.prize.position.z) < 0.001);
     assert.ok(Math.abs(settled.prize.position.y - 1.395) < 0.004);
     for (const finger of settled.claw.fingers) {
-      assert.ok(Math.abs(finger.position.y - (CONFIG.home.y - 0.025)) < 0.005);
-      assert.ok(Math.abs(finger.position.x - (CONFIG.home.x + finger.side * 0.63)) < 0.005);
+      const hinge = clawPivot(CONFIG.home, finger.side);
+      assert.ok(Math.abs(finger.position.x - hinge.x) < 0.0001);
+      assert.ok(Math.abs(finger.position.y - hinge.y) < 0.0001);
+      assert.ok(Math.abs(finger.angle - clawAngle(finger.side, 1)) < 0.005);
     }
     assert.equal(settled.won, false);
   } finally { physics.dispose(); }

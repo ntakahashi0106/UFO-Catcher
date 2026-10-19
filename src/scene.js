@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import typeface from 'three/examples/fonts/helvetiker_bold.typeface.json';
 import { CONFIG } from './config.js';
+import { CLAW, clawPose } from './claw.js';
 
 const FONT = new FontLoader().parse(typeface);
 
@@ -95,6 +96,33 @@ export function createScene(container, { onReady } = {}) {
   function screw(x, y, z, parent = scene) {
     cylinder(0.022, 0.012, silver, parent, [x, y, z], 'z', 12);
     box(0.023, 0.003, 0.014, navy, parent, [x, y, z + 0.008], 0, false);
+  }
+  function bentArmRibbon(points, width, depth) {
+    // Offset the whole polyline, including its shared miter, so each metal rail
+    // is one uninterrupted piece rather than two rods that can appear detached.
+    const offsets = points.map((point, index) => {
+      const previous = points[Math.max(0, index - 1)];
+      const next = points[Math.min(points.length - 1, index + 1)];
+      const incoming = new THREE.Vector2(point.x - previous.x, point.y - previous.y).normalize();
+      const outgoing = new THREE.Vector2(next.x - point.x, next.y - point.y).normalize();
+      if (index === 0) incoming.copy(outgoing);
+      if (index === points.length - 1) outgoing.copy(incoming);
+      const normalIn = new THREE.Vector2(-incoming.y, incoming.x);
+      const normalOut = new THREE.Vector2(-outgoing.y, outgoing.x);
+      const miter = normalIn.add(normalOut).normalize();
+      return miter.multiplyScalar(width * 0.5 / Math.max(0.3, miter.dot(normalOut)));
+    });
+    const contour = points.map((point, index) => new THREE.Vector2(point.x + offsets[index].x, point.y + offsets[index].y));
+    for (let index = points.length - 1; index >= 0; index--) {
+      contour.push(new THREE.Vector2(points[index].x - offsets[index].x, points[index].y - offsets[index].y));
+    }
+    const geometry = new THREE.ExtrudeGeometry(new THREE.Shape(contour), {
+      depth, steps: 1, bevelEnabled: true, bevelThickness: 0.002,
+      bevelSize: 0.002, bevelSegments: 2, curveSegments: 2,
+    });
+    geometry.translate(0, 0, -depth / 2);
+    geometry.computeVertexNormals();
+    return geometry;
   }
 
   scene.add(new THREE.HemisphereLight('#fffff1', '#8c9c91', 2.4));
@@ -226,27 +254,47 @@ export function createScene(container, { onReady } = {}) {
   mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(coilPoints), 110, 0.006, 5, false), navy, coil);
 
   const clawHead = new THREE.Group();
+  clawHead.name = 'claw-housing';
   scene.add(clawHead);
   cylinder(0.16, 0.055, silver, clawHead, [0, 0.24, 0]);
   box(0.62, 0.23, 0.41, ivory, clawHead, [0, 0.115, 0], 0.075);
   box(0.53, 0.052, 0.37, navy, clawHead, [0, 0.015, 0], 0.024);
   box(0.43, 0.023, 0.022, led, clawHead, [0, 0.10, 0.207], 0.009, false);
   text('H', 0.075, navy, clawHead, [0, 0.132, 0.209]);
-  const shoulderLeft = box(0.42, 0.075, 0.14, silver, clawHead, [-0.34, 0.015, 0], 0.025);
-  const shoulderRight = box(0.42, 0.075, 0.14, silver, clawHead, [0.34, 0.015, 0], 0.025);
+  box(0.43, 0.056, 0.20, charcoal, clawHead, [0, -0.008, 0], 0.018);
 
   const fingers = [];
   for (const side of [-1, 1]) {
+    // The axle is fixed to the head. Its matching arm collar rotates on this
+    // same pin; opening never translates the hinge sideways.
+    const hinge = new THREE.Group();
+    hinge.position.set(side * CLAW.pivotX, -CLAW.pivotDrop, 0);
+    clawHead.add(hinge);
+    cylinder(0.060, 0.115, navy, hinge, [0, 0, 0], 'z', 24);
+    cylinder(0.021, 0.155, silver, hinge, [0, 0, 0], 'z', 20);
+
     const group = new THREE.Group();
+    group.name = side < 0 ? 'claw-arm-left' : 'claw-arm-right';
     scene.add(group);
-    cylinder(0.066, 0.10, navy, group, [0, 0, 0], 'z', 20);
-    cylinder(0.038, 0.116, silver, group, [0, 0, 0], 'z', 20);
-    box(0.05, 0.55, 0.07, silver, group, [side * 0.055, -0.275, 0], 0.012);
-    box(0.026, 0.43, 0.075, satin, group, [side * 0.055, -0.27, 0], 0.007);
-    // These dimensions match the physical contact shapes exactly.
-    box(0.18, 0.056, 0.13, silver, group, [-side * 0.055, -0.60, 0], 0.012);
-    box(0.13, 0.009, 0.106, navy, group, [-side * 0.055, -0.568, 0], 0.004);
-    box(0.066, 0.09, 0.077, silver, group, [side * 0.045, -0.545, 0], 0.011);
+    const points = CLAW.points.map(point => ({ x: side * point.x, y: point.y, z: point.z }));
+    const railDepth = 0.017;
+    const railZ = (CLAW.segmentDepth - railDepth) / 2;
+    for (const z of [-railZ, railZ]) {
+      mesh(bentArmRibbon(points, CLAW.segmentWidth, railDepth), silver, group, [0, 0, z]);
+      cylinder(0.041, 0.020, satin, group, [0, 0, z], 'z', 24);
+    }
+    // Small cross pins tie the twin rails into a rigid bent arm assembly.
+    for (const point of points.slice(1)) {
+      cylinder(0.027, CLAW.segmentDepth, silver, group, [point.x, point.y, point.z], 'z', 20);
+      for (const z of [-CLAW.segmentDepth / 2 - 0.004, CLAW.segmentDepth / 2 + 0.004]) {
+        cylinder(0.014, 0.008, satin, group, [point.x, point.y, z], 'z', 6);
+      }
+    }
+    const spoon = CLAW.spoon;
+    box(spoon.size.x, spoon.size.y, spoon.size.z, silver, group,
+      [side * spoon.center.x, spoon.center.y, spoon.center.z], spoon.radius);
+    box(0.070, 0.006, 0.070, satin, group,
+      [side * spoon.center.x, spoon.center.y + spoon.size.y / 2 + 0.001, spoon.center.z], 0.003);
     fingers.push({ side, group });
   }
 
@@ -355,8 +403,6 @@ export function createScene(container, { onReady } = {}) {
     coil.position.set(cp.x + 0.055, cableBottom, cp.z);
     coil.scale.set(1, cableLength, 1);
     const opening = THREE.MathUtils.clamp(claw.open ?? 1, 0, 1);
-    shoulderLeft.position.x = -(0.18 + opening * 0.2);
-    shoulderRight.position.x = 0.18 + opening * 0.2;
     for (let i = 0; i < fingers.length; i++) {
       const finger = fingers[i];
       const pose = claw.fingers?.find((f) => f.side === finger.side) || claw.fingers?.[i];
@@ -364,8 +410,9 @@ export function createScene(container, { onReady } = {}) {
         finger.group.position.copy(pose.position);
         finger.group.quaternion.copy(pose.quaternion);
       } else {
-        finger.group.position.set(cp.x + finger.side * (0.28 + 0.35 * opening), cp.y - 0.025, cp.z);
-        finger.group.rotation.set(0, 0, -finger.side * (1 - opening) * 0.26);
+        const fallback = clawPose(cp, finger.side, opening);
+        finger.group.position.copy(fallback.position);
+        finger.group.quaternion.copy(fallback.quaternion);
       }
     }
     if (cameraTween) {
