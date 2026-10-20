@@ -17,7 +17,7 @@ export const PRIZE_TYPES = Object.freeze([
   Object.freeze({
     id: 'tall', label: 'トールボックス', subtitle: '高さと重さに挑む',
     description: '背が高く、少し重めの箱。重心を読んで、倒す方向を考えよう。',
-    size: Object.freeze({ x: 0.62, y: 0.62, z: 1.30 }),
+    size: Object.freeze({ x: 0.57, y: 0.57, z: 1.20 }),
     mass: 0.46, friction: 0.56, color: '#657da6', accent: '#b0bbd5',
   }),
 ]);

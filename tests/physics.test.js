@@ -357,10 +357,12 @@ test('changing box type clears acquisition, motion, and claw state and invalid I
 test('all box shapes physically move with edge aims while the hinges stay attached', async () => {
   const physics = await createPhysics();
   try {
+    const tall = getPrizeType('tall');
     const aims = {
       standard: { x: 0, z: 0.28 },
       flat: { x: 0.15, z: 0.35 },
-      tall: { x: 0.3, z: 0.35 },
+      // Aim the head just outside the side so the inner arm pushes the edge.
+      tall: { x: tall.size.x / 2 + 0.05, z: tall.size.z * 0.3 },
     };
     for (const type of PRIZE_TYPES) {
       physics.setPrizeType(type.id);
