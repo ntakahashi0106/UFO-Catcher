@@ -18,7 +18,7 @@
     <div id="app">
       <header class="site-header">
         <a href="./" class="brand" aria-label="クレーンゲーム ホーム"><h1 class="brand-title">クレーンゲーム</h1><span class="brand-description">CRANE SIMULATOR</span></a>
-        <nav class="header-nav"><span class="nav-active">シミュレーター</span><button data-dialog="help">遊び方 <i data-lucide="arrow-up-right"></i></button></nav>
+        <nav class="header-nav"><button data-dialog="help">遊び方 <i data-lucide="arrow-up-right"></i></button></nav>
         <div class="header-actions"><button id="pwa-update-button" class="app-update-button" title="更新して再起動（景品と回数をリセット）" hidden>更新して再起動</button><button id="install-button" class="install-button" aria-label="ホーム画面にアプリを追加"><i data-lucide="download"></i><span>アプリに追加</span></button><span class="live-tag"><span></span> PHYSICS LIVE</span><button class="icon-button" id="sound-button" aria-label="サウンドをオンにする" title="サウンド"><i data-lucide="volume-x"></i></button><button class="icon-button" id="fullscreen-button" aria-label="フルスクリーン" title="フルスクリーン"><i data-lucide="maximize"></i></button></div>
       </header>
 
@@ -38,7 +38,6 @@
 
           <aside class="control-panel" aria-label="操作パネル">
             <div class="control-heading"><p class="eyebrow">CONTROL PANEL</p><button class="power-summary" id="arm-power-button" data-dialog="settings" aria-label="アームパワー100％。設定を開く">パワー <span id="arm-power-summary">100%</span></button><button class="icon-button settings-button" data-dialog="settings" title="設定" aria-label="設定"><i data-lucide="sliders-horizontal"></i></button></div>
-            <div class="control-title"><h2>狙って、ずらす。</h2><p>箱の端を狙うと、重心が動く。</p></div>
             <button id="prize-button" class="prize-selector" disabled aria-label="箱のタイプを選び直す"><span class="prize-color-dot"></span><span id="current-prize-label">スタンダード</span><small>箱を変更</small><i data-lucide="chevron-down"></i></button>
             <div class="attempt-row"><div><span class="stat-label">TRY COUNT</span><span class="attempt-number" id="attempt-count">00<span>回</span></span></div><div class="best-stat"><span class="stat-label">YOUR BEST</span><span id="best-count">—<small>回</small></span></div></div>
             <p id="round-record-note" class="round-record-note" role="status" hidden>パワー変更後は記録対象外です。置き直すと計測を再開します。</p>
