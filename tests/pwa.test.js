@@ -278,9 +278,16 @@ test('manifest and app icons support installation from a project subpath', async
   assert.equal(manifest.id, undefined, 'use the resolved start URL as the app identity, avoiding an origin-root id collision');
   assert.equal(manifest.scope, './');
   assert.equal(manifest.display, 'standalone');
-  for (const [file, size] of [['icon-192.png', 192], ['icon-512.png', 512], ['maskable-512.png', 512], ['apple-touch-icon.png', 180]]) {
-    const icon = await readFile(new URL(`../public/icons/${file}`, import.meta.url));
-    assert.equal(icon.readUInt32BE(16), size);
-    assert.equal(icon.readUInt32BE(20), size);
+  for (const descriptor of manifest.icons) {
+    assert.equal(descriptor.type, 'image/webp');
+    const icon = await readFile(new URL(`../public/${descriptor.src}`, import.meta.url));
+    assert.equal(icon.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(icon.toString('ascii', 8, 12), 'WEBP');
   }
+  assert.ok(manifest.icons.some(icon => icon.sizes === '192x192' && icon.purpose === 'any'));
+  assert.ok(manifest.icons.some(icon => icon.sizes === '512x512' && icon.purpose === 'any'));
+  assert.ok(manifest.icons.some(icon => icon.purpose === 'maskable'));
+  const apple = await readFile(new URL('../public/icons/ufo-crane-apple-v1.png', import.meta.url));
+  assert.equal(apple.readUInt32BE(16), 180);
+  assert.equal(apple.readUInt32BE(20), 180);
 });

@@ -45,7 +45,7 @@ URLは通常 `https://<ユーザー名>.github.io/<リポジトリ名>/` です�
 
 更新版の準備ができると画面に案内します。「更新して再起動」を選んだ時に再読み込みするため、プレイ中に自動でリセットされることはありません。ページを開き直した場合も、更新を選ぶかクレーンゲームのすべての画面を閉じるまでは、保存済みの同じバージョンを使います。HTMLとゲーム本体のバージョンが混ざらないため、通信が途中で切れても保存済みのゲームを起動できます。初回読み込みが中断した場合は全ファイルの保存完了までオフライン準備完了を表示しません。
 
-PWAの動作確認は `npm run build` → `npm run preview` で行います。開発用の `npm run dev` ではService Workerを登録しません。公開時にはHTTPSが必要です。アイコンは `npm run icons` で再生成できます。
+PWAの動作確認は `npm run build` → `npm run preview` で行います。開発用の `npm run dev` ではService Workerを登録しません。公開時にはHTTPSが必要です。アイコンはimagegenで生成したUFOクレーンのシンボルをWebPで配信し、iOS用にPNGも用意しています。`npm run icons`（Python + Pillowが必要）で `assets/branding/ufo-crane-source.webp` から各サイズを再生成できます。
 
 ## 操作
 
