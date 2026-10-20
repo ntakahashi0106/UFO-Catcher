@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { CONFIG } from './config.js';
 import { CLAW, clawAngle, clawPivot, clawPose, fingerSegments } from './claw.js';
+import { getPrizeType } from './prizes.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const vector = ({ x, y, z }) => ({ x, y, z });
@@ -11,7 +12,7 @@ let initialization;
 export const FINGER_GEOMETRY = CLAW;
 
 /** A metre/kilogram/second simulation. Prize motion is exclusively Rapier motion. */
-export async function createPhysics() {
+export async function createPhysics({ prizeType = 'standard' } = {}) {
   initialization ??= RAPIER.init();
   await initialization;
 
@@ -25,6 +26,7 @@ export async function createPhysics() {
   let disposed = false;
   let contact = false;
   let difficulty = 'normal';
+  let selectedPrize = getPrizeType(prizeType);
   let target = { ...CONFIG.home, open: 1 };
 
   // The carriage is driven, but each arm is a separate rigid body permanently
@@ -63,17 +65,30 @@ export async function createPhysics() {
 
   const prize = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(0, CONFIG.railY + CONFIG.railRadius + CONFIG.prize.y / 2 + 0.002, 0)
+      .setTranslation(0, CONFIG.railY + CONFIG.railRadius + selectedPrize.size.y / 2 + 0.002, 0)
       .setLinearDamping(0.08).setAngularDamping(0.14)
       .setCcdEnabled(true).setCanSleep(true)
       .setAdditionalSolverIterations(8),
   );
-  const prizeCollider = world.createCollider(
-    RAPIER.ColliderDesc.roundCuboid(CONFIG.prize.x / 2 - 0.004,
-      CONFIG.prize.y / 2 - 0.004, CONFIG.prize.z / 2 - 0.004, 0.004)
-      .setMass(CONFIG.prize.mass).setFriction(0.52).setRestitution(0)
-      .setCollisionGroups(0x0002ffff), prize,
-  );
+  function prizeFriction() {
+    return selectedPrize.friction + (difficulty === 'easy' ? -0.12 : difficulty === 'hard' ? 0.16 : 0);
+  }
+
+  function createPrizeCollider() {
+    const { size, mass } = selectedPrize;
+    const collider = world.createCollider(
+      RAPIER.ColliderDesc.roundCuboid(size.x / 2 - 0.004,
+        size.y / 2 - 0.004, size.z / 2 - 0.004, 0.004)
+        .setMass(mass).setFriction(prizeFriction()).setRestitution(0)
+        .setCollisionGroups(0x0002ffff), prize,
+    );
+    // Replacing the shape must replace its mass and rotational inertia too,
+    // including before the next physics step or an immediate diagnostic impulse.
+    prize.recomputeMassPropertiesFromColliders();
+    return collider;
+  }
+
+  let prizeCollider = createPrizeCollider();
 
   const fingers = [-1, 1].map((side) => {
     const pose = clawPose(target, side, target.open);
@@ -125,10 +140,10 @@ export async function createPhysics() {
     difficulty = ['easy', 'normal', 'hard'].includes(level) ? level : 'normal';
     // Difficulty changes physical friction/available motor force, never the drop
     // condition or a hidden probability of winning.
-    prizeCollider.setFriction(difficulty === 'easy' ? 0.40 : difficulty === 'hard' ? 0.68 : 0.52);
+    prizeCollider.setFriction(prizeFriction());
     resetBody(prize, {
       x: 0,
-      y: CONFIG.railY + CONFIG.railRadius + CONFIG.prize.y / 2 + 0.002,
+      y: CONFIG.railY + CONFIG.railRadius + selectedPrize.size.y / 2 + 0.002,
       z: 0,
     });
     target = { ...CONFIG.home, open: 1 };
@@ -145,6 +160,14 @@ export async function createPhysics() {
     contact = false;
     elapsed = 0;
     accumulator = 0;
+  }
+
+  function setPrizeType(id) {
+    selectedPrize = getPrizeType(id);
+    world.removeCollider(prizeCollider, true);
+    prizeCollider = createPrizeCollider();
+    resetPrize(difficulty);
+    return selectedPrize.id;
   }
 
   function setClawTarget(next) {
@@ -250,6 +273,8 @@ export async function createPhysics() {
     });
     return {
       prize: {
+        type: selectedPrize.id, size: { ...selectedPrize.size }, mass: prize.mass(),
+        inertia: vector(prize.principalInertia()),
         position: vector(prize.translation()), quaternion: rotation(prize.rotation()),
         velocity: vector(prize.linvel()), angularVelocity: vector(prize.angvel()),
         sleeping: prize.isSleeping(),
@@ -260,7 +285,7 @@ export async function createPhysics() {
   }
 
   return {
-    step, setClawTarget, resetPrize, getState,
+    step, setClawTarget, resetPrize, setPrizeType, getState,
     dispose() { if (!disposed) { disposed = true; world.free(); } },
     // Deterministic diagnostics used by regression tests. Gameplay never invokes
     // these: setting pose only establishes a test's initial physical conditions.

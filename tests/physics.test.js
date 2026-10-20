@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPhysics } from '../src/physics.js';
 import { CONFIG } from '../src/config.js';
-import { CLAW, clawAngle, clawPivot } from '../src/claw.js';
+import { clawAngle, clawPivot } from '../src/claw.js';
+import { PRIZE_TYPES, getPrizeType, getPrizeLowerHeadY } from '../src/prizes.js';
 
 function simulate(physics, seconds, inspect) {
   for (let i = 0; i < Math.round(seconds / CONFIG.fixedStep); i++) {
@@ -37,7 +38,7 @@ function initializeAtCentre(physics) {
 // in these gameplay regressions: all displacement comes from rigid-body contact.
 function attempt(physics, aim = { x: 0, z: 0.28 }, inspect) {
   move(physics, { ...aim, open: 1 }, 0.43, false, inspect);
-  move(physics, { y: CLAW.lowerHeadY }, 1.8, true, inspect);
+  move(physics, { y: getPrizeLowerHeadY(physics.getState().prize.type) }, 1.8, true, inspect);
   move(physics, { open: 0 }, 1.1, true, inspect);
   simulate(physics, 0.4, inspect);
   const closed = physics.getState();
@@ -262,5 +263,115 @@ test('reset restores the carton, head, and hinged arms to a stable setup', async
       assert.ok(Math.abs(finger.angle - clawAngle(finger.side, 1)) < 0.005);
     }
     assert.equal(settled.won, false);
+  } finally { physics.dispose(); }
+});
+
+test('each selected box has its own physical size, mass, and resting height', async () => {
+  const configPrize = { ...CONFIG.prize };
+  for (const type of PRIZE_TYPES) {
+    const physics = await createPhysics({ prizeType: type.id });
+    try {
+      const initial = physics.getState().prize;
+      assert.equal(initial.type, type.id);
+      assert.deepEqual(initial.size, type.size);
+      assert.ok(Math.abs(initial.mass - type.mass) < 1e-6);
+      const expectedInertia = {
+        x: type.mass * (type.size.y ** 2 + type.size.z ** 2) / 12,
+        y: type.mass * (type.size.x ** 2 + type.size.z ** 2) / 12,
+        z: type.mass * (type.size.x ** 2 + type.size.y ** 2) / 12,
+      };
+      for (const axis of ['x', 'y', 'z']) {
+        // Rounded cardboard edges have slightly less inertia than a sharp box.
+        assert.ok(Math.abs(initial.inertia[axis] / expectedInertia[axis] - 1) < 0.04,
+          `${type.id} ${axis} inertia must match its actual dimensions`);
+      }
+      simulate(physics, 5, verifyHinges);
+      const settled = physics.getState();
+      const restY = CONFIG.railY + CONFIG.railRadius + type.size.y / 2;
+      assert.ok(Math.abs(settled.prize.position.y - restY) < 0.004);
+      assert.ok(Math.abs(settled.prize.position.z) < 0.001);
+      assert.equal(settled.prize.sleeping, true);
+      assert.equal(settled.won, false);
+    } finally { physics.dispose(); }
+  }
+  assert.deepEqual(CONFIG.prize, configPrize, 'choosing a box must not mutate the global default');
+});
+
+test('switching box types immediately replaces physical mass and inertia without accumulating colliders', async () => {
+  const physics = await createPhysics();
+  try {
+    // Repeated switches expose accidental duplicate colliders or stale mass.
+    for (let repeat = 0; repeat < 3; repeat++) {
+      for (const type of PRIZE_TYPES) {
+        assert.equal(physics.setPrizeType(type.id), type.id);
+        const initial = physics.getState().prize;
+        physics.debug.applyPrizeImpulse({ x: 0.06, y: 0, z: 0 });
+        const moved = physics.getState().prize;
+        assert.ok(Math.abs(moved.velocity.x - 0.06 / type.mass) < 1e-6,
+          'linear impulse must use the newly selected mass before any simulation step');
+        physics.resetPrize('hard');
+        const reset = physics.getState().prize;
+        physics.debug.applyPrizeImpulse({ x: 0, y: 0.04, z: 0 },
+          { x: 0.12, y: reset.position.y, z: 0 });
+        const turned = physics.getState().prize;
+        assert.ok(Math.abs(turned.angularVelocity.z - 0.0048 / initial.inertia.z) < 1e-5,
+          'an off-centre impulse must use the new shape inertia');
+        assert.equal(turned.type, type.id, 'difficulty resets retain the selected box');
+        assert.deepEqual(turned.size, type.size);
+        assert.ok(Math.abs(turned.mass - type.mass) < 1e-6);
+      }
+    }
+  } finally { physics.dispose(); }
+});
+
+test('changing box type clears acquisition, motion, and claw state and invalid IDs use the shared fallback', async () => {
+  const physics = await createPhysics();
+  try {
+    physics.debug.setPrizePose({ x: 0, y: 2.1, z: 0 },
+      { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 });
+    simulate(physics, 2.1);
+    assert.equal(physics.getState().won, true);
+    physics.debug.applyPrizeImpulse({ x: 0.1, y: 0.1, z: 0.1 });
+    physics.setClawTarget({ x: 0.5, y: 1.75, z: 0.3, open: 0 });
+    simulate(physics, 0.2);
+    physics.setPrizeType('flat');
+    const reset = physics.getState();
+    assert.equal(reset.prize.type, 'flat');
+    assert.equal(reset.won, false);
+    assert.equal(reset.contact, false);
+    assert.equal(reset.elapsed, 0);
+    assert.deepEqual(reset.prize.velocity, { x: 0, y: 0, z: 0 });
+    assert.deepEqual(reset.prize.angularVelocity, { x: 0, y: 0, z: 0 });
+    assert.deepEqual(reset.prize.quaternion, { x: 0, y: 0, z: 0, w: 1 });
+    assert.equal(reset.claw.open, 1);
+    verifyHinges(reset);
+    simulate(physics, 5, verifyHinges);
+    assert.ok(Math.abs(physics.getState().prize.position.y - 1.32) < 0.004);
+    assert.equal(physics.setPrizeType('not-a-prize'), getPrizeType('not-a-prize').id);
+    assert.equal(physics.getState().prize.type, 'standard');
+    physics.resetPrize('easy');
+    assert.equal(physics.getState().prize.type, 'standard');
+  } finally { physics.dispose(); }
+});
+
+test('all box shapes physically move with edge aims while the hinges stay attached', async () => {
+  const physics = await createPhysics();
+  try {
+    const aims = {
+      standard: { x: 0, z: 0.28 },
+      flat: { x: 0.15, z: 0.35 },
+      tall: { x: 0.3, z: 0.35 },
+    };
+    for (const type of PRIZE_TYPES) {
+      physics.setPrizeType(type.id);
+      initializeAtCentre(physics);
+      const result = attempt(physics, aims[type.id], verifyHinges);
+      assert.equal(result.closed.contact, true, `${type.id} must use actual physical claw contacts`);
+      assert.equal(result.settled.prize.type, type.id);
+      assert.ok(Object.values(result.settled.prize.position).every(Number.isFinite));
+      assert.ok(result.settled.prize.position.y >= CONFIG.floorY);
+      assert.ok(Math.hypot(result.settled.prize.position.x, result.settled.prize.position.z) > 0.02,
+        `${type.id} must retain meaningful displacement after an ordinary edge attempt`);
+    }
   } finally { physics.dispose(); }
 });

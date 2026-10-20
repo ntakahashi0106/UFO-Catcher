@@ -7,11 +7,13 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import typeface from 'three/examples/fonts/helvetiker_bold.typeface.json';
 import { CONFIG } from './config.js';
 import { CLAW, clawPose } from './claw.js';
+import { getPrizeType } from './prizes.js';
 
 const FONT = new FontLoader().parse(typeface);
 
 /** All of the cabinet, package and mechanisms are geometry: no image textures. */
-export function createScene(container, { onReady } = {}) {
+export function createScene(container, { onReady, prizeType = 'standard' } = {}) {
+  let selectedPrize = getPrizeType(prizeType);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#e6e4dc');
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
@@ -386,6 +388,7 @@ export function createScene(container, { onReady } = {}) {
   }
   function update(state, dt = 1 / 60) {
     if (disposed) return;
+    if (state?.prize?.type && state.prize.type !== selectedPrize.id) setPrizeType(state.prize.type);
     if (state?.prize) {
       prize.position.copy(state.prize.position);
       if (state.prize.quaternion) prize.quaternion.copy(state.prize.quaternion);
@@ -431,6 +434,15 @@ export function createScene(container, { onReady } = {}) {
     guide.position.z = target.z ?? guide.position.z;
   }
   function setGuide(visible) { guide.visible = visible; }
+  function setPrizeType(id) {
+    selectedPrize = getPrizeType(id);
+    prize.scale.set(selectedPrize.size.x / CONFIG.prize.x,
+      selectedPrize.size.y / CONFIG.prize.y, selectedPrize.size.z / CONFIG.prize.z);
+    red.color.set(selectedPrize.color);
+    orange.color.set(selectedPrize.accent);
+    guide.position.y = CONFIG.railY + CONFIG.railRadius + selectedPrize.size.y + 0.018;
+    return selectedPrize.id;
+  }
   function setQuality(next) {
     quality = next;
     const low = next === 'low' || next === 'performance';
@@ -441,6 +453,7 @@ export function createScene(container, { onReady } = {}) {
     renderer.setSize(width, height, false);
   }
   const resizeObserver = new ResizeObserver(resize);
+  setPrizeType(selectedPrize.id);
   resizeObserver.observe(container);
   resize();
   setCamera('perspective', true);
@@ -457,5 +470,5 @@ export function createScene(container, { onReady } = {}) {
     renderer.dispose();
     renderer.domElement.remove();
   }
-  return { update, resize, setCamera, setTarget, setGuide, setQuality, dispose, renderer, camera, scene, controls, get quality() { return quality; } };
+  return { update, resize, setCamera, setTarget, setGuide, setPrizeType, setQuality, dispose, renderer, camera, scene, controls, get quality() { return quality; } };
 }
