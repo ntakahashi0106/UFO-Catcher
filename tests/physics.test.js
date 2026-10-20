@@ -361,8 +361,8 @@ test('all box shapes physically move with edge aims while the hinges stay attach
     const aims = {
       standard: { x: 0, z: 0.28 },
       flat: { x: 0.15, z: 0.35 },
-      // Aim the head just outside the side so the inner arm pushes the edge.
-      tall: { x: tall.size.x / 2 + 0.05, z: tall.size.z * 0.3 },
+      // Offset the narrower carton slightly so the spoons lift its edge unevenly.
+      tall: { x: tall.size.x * 0.2, z: tall.size.z * 0.25 },
     };
     for (const type of PRIZE_TYPES) {
       physics.setPrizeType(type.id);
@@ -376,4 +376,22 @@ test('all box shapes physically move with edge aims while the hinges stay attach
         `${type.id} must retain meaningful displacement after an ordinary edge attempt`);
     }
   } finally { physics.dispose(); }
+});
+
+test('the smaller tall box can be gripped and lifted at central and nearby aims', async () => {
+  for (const aim of [{ x: 0, z: 0 }, { x: 0, z: 0.28 }]) {
+    const physics = await createPhysics({ prizeType: 'tall' });
+    try {
+      initializeAtCentre(physics);
+      const restingY = physics.getState().prize.position.y;
+      const result = attempt(physics, aim, verifyHinges);
+      assert.equal(result.closed.contact, true, 'closing must make real claw contact');
+      assert.equal(result.lifted.contact, true, 'the spoons must retain the carton at full lift');
+      assert.ok(result.lifted.prize.position.y > restingY + 0.5,
+        'a centred or nearby grip must lift the actual carton by more than half a metre');
+      assert.equal(result.settled.contact, false, 'opening must release the lifted carton');
+      assert.ok(result.settled.prize.position.y < restingY + 0.15,
+        'the carton must return under gravity instead of remaining stuck in the open claw');
+    } finally { physics.dispose(); }
+  }
 });
