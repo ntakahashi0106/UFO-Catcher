@@ -25,3 +25,7 @@ html,button,a,input,select,label{touch-action:manipulation}button{-webkit-user-s
 @media(max-width:1100px){.power-summary{padding:4px 5px;font-size:7px;gap:4px}.power-summary span{font-size:9px}.control-heading{gap:5px}}
 @media(max-width:1000px) and (orientation:landscape) and (max-height:650px){.power-summary{padding:2px 4px;font-size:6px}.power-summary span{font-size:8px}.arm-power-setting{padding:12px 15px;margin-top:13px}.power-setting-heading label{font-size:12px}.power-setting-heading output{font-size:23px}.power-description{font-size:9px;margin-top:5px}#arm-power-setting{height:36px;margin-top:1px}.power-presets{margin-top:10px;gap:6px}.power-presets button{padding:8px 4px;font-size:10px}.power-presets button span{font-size:8px}.power-note{font-size:8px;min-height:26px;margin-top:9px}.round-record-note{font-size:6px;padding:4px 5px;margin:4px 0}.control-heading .eyebrow{font-size:6px;letter-spacing:.8px}}
 @media(max-width:1000px) and (orientation:landscape) and (max-height:350px){.control-heading{display:flex;min-height:18px;justify-content:flex-end;margin-bottom:3px}.control-heading .eyebrow{display:none}.power-summary{margin-right:auto}}
+
+.brand{white-space:nowrap;flex-shrink:0}.brand-title{font:inherit;letter-spacing:0;margin:0}
+@media(max-width:1280px){.brand-description{display:none}}
+@media(max-width:480px) and (orientation:portrait){.brand{font-size:20px;gap:6px}.brand-mark{display:none}.site-header{gap:8px;padding-left:14px;padding-right:14px}}

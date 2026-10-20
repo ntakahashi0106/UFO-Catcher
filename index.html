@@ -7,26 +7,25 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="HASHI" />
+    <meta name="apple-mobile-web-app-title" content="クレーンゲーム" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <meta name="description" content="橋の上の箱を、少しずつ。three.js と剛体物理演算で遊ぶ、橋渡し式クレーンゲーム。PC・スマートフォン横持ち対応。" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231c2929'/%3E%3Cpath d='M17 20v24m30-24v24M17 32h30' stroke='%23c6ee9e' stroke-width='7'/%3E%3C/svg%3E" />
-    <title>HASHI — 橋渡しクレーンシミュレーター</title>
+    <title>クレーンゲーム</title>
   </head>
   <body>
     <div id="app">
       <header class="site-header">
-        <a href="./" class="brand" aria-label="HASHI ホーム"><span class="brand-mark"><i></i><i></i><i></i></span><span>HASHI<span class="brand-dot">.</span></span><span class="brand-description">CRANE SIMULATOR</span></a>
+        <a href="./" class="brand" aria-label="クレーンゲーム ホーム"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><h1 class="brand-title">クレーンゲーム</h1><span class="brand-description">CRANE SIMULATOR</span></a>
         <nav class="header-nav"><span class="nav-active">シミュレーター</span><button data-dialog="help">遊び方 <i data-lucide="arrow-up-right"></i></button></nav>
         <div class="header-actions"><button id="pwa-update-button" class="app-update-button" title="更新して再起動（景品と回数をリセット）" hidden>更新して再起動</button><button id="install-button" class="install-button" aria-label="ホーム画面にアプリを追加"><i data-lucide="download"></i><span>アプリに追加</span></button><span class="live-tag"><span></span> PHYSICS LIVE</span><button class="icon-button" id="sound-button" aria-label="サウンドをオンにする" title="サウンド"><i data-lucide="volume-x"></i></button><button class="icon-button" id="fullscreen-button" aria-label="フルスクリーン" title="フルスクリーン"><i data-lucide="maximize"></i></button></div>
       </header>
 
       <main>
-        <div class="page-intro"><div><p class="eyebrow">THE BRIDGE CATCHER</p><h1>橋渡しの、その一手<span>。</span></h1><p class="intro-text">狙う、ずらす、もう一度。重心を読むクレーンゲーム。</p></div><div class="intro-aside"><span class="outline-pill">NO. 001 / BRIDGE</span><p>つかむだけじゃ、取れない。</p></div></div>
         <div class="game-layout">
           <section class="machine-panel" aria-label="3Dクレーンゲーム">
-            <div class="machine-header"><div class="machine-label"><span class="mint-dot"></span><span>HASHI <b>01</b></span><span class="small-separator"></span><span class="setup-label">橋渡し / 2本バー</span></div><span class="free-play">FREE PLAY <i data-lucide="infinity"></i></span></div>
+            <div class="machine-header"><div class="machine-label"><span class="mint-dot"></span><span>クレーンゲーム <b>01</b></span><span class="small-separator"></span><span class="setup-label">橋渡し / 2本バー</span></div><span class="free-play">FREE PLAY <i data-lucide="infinity"></i></span></div>
             <div id="stage">
               <div class="stage-corner"><span class="corner-index">01 —</span><span>BRIDGE CHALLENGE</span></div>
               <div class="stage-status" id="stage-status"><span></span>位置を合わせてください</div>
@@ -52,12 +51,12 @@
           </aside>
         </div>
         <div class="bottom-notes"><div class="strategy-note"><span class="tip-label">ONE POINT</span><p>真ん中より、<strong>端を狙う。</strong><span>少しずつ傾けて、バーの間に落とそう。</span></p><i data-lucide="arrow-up-right"></i></div><div class="physics-note"><span class="physics-icon"><i data-lucide="box"></i></span><span>摩擦・重心・接触をシミュレーション<small>POWERED BY THREE.JS + RAPIER</small></span></div></div>
-        <footer><span>HASHI. <span class="footer-jp">一手を楽しむ、クレーンシミュレーター。</span></span><span id="pwa-status" role="status" hidden></span><span>PLAY. SHIFT. REPEAT.</span></footer>
+        <footer><span>クレーンゲーム <span class="footer-jp">一手を楽しむ、クレーンシミュレーター。</span></span><span id="pwa-status" role="status" hidden></span><span>PLAY. SHIFT. REPEAT.</span></footer>
       </main>
     </div>
     <div class="rotate-notice"><i data-lucide="smartphone"></i><h2>横向きで、プレイしよう。</h2><p>スマートフォンを横にすると<br>筐体と操作パネルを一緒に見られます。</p></div>
     <dialog id="prize-dialog" aria-labelledby="prize-dialog-title"><button class="dialog-close" id="prize-cancel" aria-label="箱の選択を閉じる" hidden><i data-lucide="x"></i></button><div class="picker-heading"><p class="eyebrow">CHOOSE YOUR CHALLENGE</p><h2 id="prize-dialog-title">今日の一箱を、選ぼう。</h2><p>形も、重さも、手ごたえも。3つの箱からチャレンジ。</p></div><div id="prize-options" class="prize-options" role="group" aria-label="箱のタイプ"></div><div class="picker-bottom"><p id="prize-selection-note" aria-live="polite">好きな箱を選んでスタート。</p><button id="prize-start" class="dialog-primary" disabled><span>筐体を準備しています</span><i data-lucide="arrow-right"></i></button></div></dialog>
-    <dialog id="install-dialog" aria-labelledby="install-dialog-title"><button class="dialog-close" aria-label="閉じる"><i data-lucide="x"></i></button><p class="eyebrow">TAKE HASHI WITH YOU</p><h2 id="install-dialog-title">ホーム画面から、一手。</h2><p>ホーム画面に追加すると、独立した画面で起動できます。スマートフォンは横持ちでプレイしてください。</p><div class="install-instructions" id="install-instructions"><strong>iPhone / iPad</strong><p>Safariでこのページを開き、「共有」→「ホーム画面に追加」を選んでください。</p><strong>Android</strong><p>Chromeのメニューから「アプリをインストール」または「ホーム画面に追加」を選んでください。</p><strong>PC</strong><p>Chrome / Edgeのアドレスバーに表示されるインストールアイコン、またはメニューのインストール項目を使えます。</p></div><p id="offline-state" role="status">初回の読み込みと保存が完了すると、オフラインでも起動できます。</p><p class="install-offline-note">最初は通信が必要です。保存データを削除すると、再度オンラインでの読み込みが必要になります。</p><button class="dialog-primary" id="install-done">プレイに戻る <i data-lucide="arrow-right"></i></button></dialog>
+    <dialog id="install-dialog" aria-labelledby="install-dialog-title"><button class="dialog-close" aria-label="閉じる"><i data-lucide="x"></i></button><p class="eyebrow">INSTALL & PLAY</p><h2 id="install-dialog-title">ホーム画面から、一手。</h2><p>ホーム画面に追加すると、独立した画面で起動できます。スマートフォンは横持ちでプレイしてください。</p><div class="install-instructions" id="install-instructions"><strong>iPhone / iPad</strong><p>Safariでこのページを開き、「共有」→「ホーム画面に追加」を選んでください。</p><strong>Android</strong><p>Chromeのメニューから「アプリをインストール」または「ホーム画面に追加」を選んでください。</p><strong>PC</strong><p>Chrome / Edgeのアドレスバーに表示されるインストールアイコン、またはメニューのインストール項目を使えます。</p></div><p id="offline-state" role="status">初回の読み込みと保存が完了すると、オフラインでも起動できます。</p><p class="install-offline-note">最初は通信が必要です。保存データを削除すると、再度オンラインでの読み込みが必要になります。</p><button class="dialog-primary" id="install-done">プレイに戻る <i data-lucide="arrow-right"></i></button></dialog>
     <dialog id="help-dialog"><button class="dialog-close" aria-label="閉じる"><i data-lucide="x"></i></button><p class="eyebrow">HOW TO PLAY</p><h2>少しずつが、近道。</h2><p>2本のバーに渡された箱を、アームで動かして落とすゲームです。1回で取れなくても、動かした箱の位置はそのまま。次の一手を考えましょう。</p><ol class="help-steps"><li><span>01</span><div><strong>視点を変えて、狙う</strong><p>矢印ボタンの長押し、またはWASD・矢印キーで移動。「真上」で奥行き、「正面」で左右を確認できます。</p></div></li><li><span>02</span><div><strong>キャッチする</strong><p>ボタンまたはSpaceキーで下降。アームが閉じて持ち上がり、自動で開きます。操作中は箱の動きを観察しましょう。</p></div></li><li><span>03</span><div><strong>端をずらして、獲得</strong><p>端を狙って片側を浮かせたり、箱を斜めに回したり。箱がバーより下に落ちると獲得です。</p></div></li></ol><p class="help-footnote">無料・回数制限なし。Rキーで景品を置き直せます。スマートフォンは横持ちで操作してください。</p><button class="dialog-primary" id="help-done">プレイに戻る <i data-lucide="arrow-right"></i></button></dialog>
     <dialog id="settings-dialog" aria-labelledby="settings-title">
       <button class="dialog-close" aria-label="閉じる"><i data-lucide="x"></i></button><p class="eyebrow">MACHINE SETTINGS</p><h2 id="settings-title">自分のペースで。</h2>

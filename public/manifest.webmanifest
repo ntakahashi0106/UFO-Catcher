@@ -1,6 +1,6 @@
 {
-  "name": "HASHI — 橋渡しクレーンシミュレーター",
-  "short_name": "HASHI",
+  "name": "クレーンゲーム",
+  "short_name": "クレーンゲーム",
   "description": "狙う、ずらす、もう一度。物理演算で遊ぶ橋渡し式クレーンゲーム。",
   "lang": "ja",
   "start_url": "./",
