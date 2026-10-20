@@ -6,6 +6,7 @@ import { createPhysics } from './physics.js';
 import { createScene } from './scene.js';
 import { initPwa } from './pwa.js';
 import { createActionGate, installTouchGuards } from './input.js';
+import { ARM_POWER, normalizeArmPower, armPowerLabel, armPowerRecordKey } from './arm-power.js';
 
 const $ = selector => document.querySelector(selector);
 const icons = { ArrowUpRight, ArrowRight, ArrowDownToLine, VolumeX, Volume2, Maximize, Minimize, Infinity, Move, Camera, Crosshair, SlidersHorizontal, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, CircleHelp, Box, Smartphone, X, Info, Download };
@@ -16,6 +17,8 @@ const readStorage = key => { try { return localStorage.getItem(key); } catch { r
 const writeStorage = (key, value) => { try { localStorage.setItem(key, String(value)); } catch { /* Storage is optional. */ } };
 let activePrize = getPrizeType(readStorage('hashi-prize'));
 let pendingPrize = activePrize;
+let armPower = normalizeArmPower(readStorage('hashi-arm-power'));
+let recordEligible = true;
 let physics, view, ready = false, hasStarted = false, attempts = 0, best = null, guide = true, sound = false;
 let phase = 'aim', elapsed = 0, phaseStart = null, accumulator = 0, last = 0, raf = 0, successShown = false;
 let blockedUntil = 0, updating = false, offlineReady = false, initializationFailed = false;
@@ -24,7 +27,9 @@ const held = new Set();
 const phaseLabels = { aim: '位置を合わせてください', descend: 'アーム下降中', close: 'アームを閉じています', lift: '持ち上げています', release: 'アームを開いています', return: '次の一手を準備中', settle: '景品の動きを確認中', won: '景品を獲得しました！' };
 const messages = { aim: '位置は何度でも調整できます', descend: 'どこに掛かるか、観察してみよう', close: 'アームの力と摩擦で、箱が動きます', lift: 'この動きを、次の一手につなげよう', release: '箱の位置は、次のプレイにも引き継ぎます', return: 'もう少しで、次の一手', settle: '箱が落ち着くまで待っています', won: 'NICE CATCH! 次のチャレンジへ' };
 function readBest() {
-  const stored = readStorage(`hashi-best-${activePrize.id}`) ?? (activePrize.id === 'standard' ? readStorage('hashi-best') : null);
+  const legacy = armPower === ARM_POWER.default
+    ? readStorage(`hashi-best-${activePrize.id}`) ?? (activePrize.id === 'standard' ? readStorage('hashi-best') : null) : null;
+  const stored = readStorage(armPowerRecordKey(activePrize.id, armPower)) ?? legacy;
   const number = Number(stored);
   return Number.isInteger(number) && number > 0 ? number : null;
 }
@@ -34,6 +39,38 @@ function updateStats() {
   $('#current-prize-label').textContent = activePrize.label;
   $('.prize-color-dot').style.background = activePrize.color;
   $('#prize-button').setAttribute('aria-label', `${activePrize.label}。箱のタイプを選び直す`);
+  $('#best-count').setAttribute('aria-label', `アームパワー${armPower}％の自己ベスト：${best ? `${best}回` : '記録なし'}`);
+  $('#round-record-note').hidden = recordEligible;
+}
+function syncArmPower() {
+  const available = ready && !updating && ['aim', 'won'].includes(phase);
+  const label = armPowerLabel(armPower);
+  $('#arm-power-setting').value = armPower;
+  $('#arm-power-setting').disabled = !available;
+  $('#arm-power-setting').setAttribute('aria-valuetext', `${armPower}％、${label}`);
+  $('#arm-power-value').innerHTML = `${armPower}% <small>${label}</small>`;
+  $('#arm-power-summary').textContent = `${armPower}%`;
+  $('#arm-power-button').setAttribute('aria-label', `アームパワー${armPower}％、${label}。設定を開く`);
+  document.querySelectorAll('[data-arm-power]').forEach(button => {
+    button.disabled = !available;
+    button.setAttribute('aria-pressed', String(Number(button.dataset.armPower) === armPower));
+  });
+  $('#arm-power-note').textContent = !available ? 'アームの動作が終わると変更できます。'
+    : !recordEligible ? '今回は記録対象外です。景品を置き直すと記録を計測します。'
+    : attempts > 0 ? '変更すると景品の位置はそのまま、今回は記録対象外になります。'
+    : '次のキャッチに反映します。設定はこの端末に保存されます。';
+}
+function setArmPower(value) {
+  if (!ready || updating || !['aim', 'won'].includes(phase)) return;
+  const next = normalizeArmPower(value);
+  if (next !== armPower) {
+    if (attempts > 0) recordEligible = false;
+    armPower = physics.setArmPower(next);
+    writeStorage('hashi-arm-power', armPower);
+    best = readBest();
+    updateStats();
+  }
+  syncArmPower();
 }
 function controlsAvailable() { return ready && hasStarted && !updating && !document.querySelector('dialog[open]'); }
 function inputAvailable() { return controlsAvailable() && performance.now() >= blockedUntil; }
@@ -46,6 +83,7 @@ function syncControls() {
   $('#play-again').disabled = !controlsAvailable();
   $('#prize-start').disabled = !ready || updating;
   $('#pwa-update-button').disabled = updating || (hasStarted && !['aim', 'won'].includes(phase));
+  syncArmPower();
 }
 function clearInput() { held.clear(); document.querySelectorAll('[data-move]').forEach(button => button.classList.remove('active')); }
 
@@ -79,6 +117,11 @@ function setGuide(value) {
 $('#guide-button').addEventListener('click', () => { if (allowAction('guide')) setGuide(!guide); });
 $('#guide-setting').addEventListener('change', event => setGuide(event.target.checked));
 $('#quality-setting').addEventListener('change', event => view?.setQuality(event.target.value));
+$('#arm-power-setting').min = ARM_POWER.min;
+$('#arm-power-setting').max = ARM_POWER.max;
+$('#arm-power-setting').step = ARM_POWER.step;
+$('#arm-power-setting').addEventListener('input', event => setArmPower(event.target.value));
+document.querySelectorAll('[data-arm-power]').forEach(button => button.addEventListener('click', () => setArmPower(button.dataset.armPower)));
 
 function openDialog(dialog) { clearInput(); dialog.showModal(); syncControls(); }
 function closeDialog(dialog) { dialog.close(); }
@@ -88,6 +131,7 @@ document.querySelectorAll('[data-dialog]').forEach(button => button.addEventList
 document.querySelectorAll('.dialog-close').forEach(button => button.addEventListener('click', () => closeDialog(button.closest('dialog'))));
 $('#help-done').addEventListener('click', () => closeDialog($('#help-dialog')));
 $('#install-done').addEventListener('click', () => closeDialog($('#install-dialog')));
+$('#settings-done').addEventListener('click', () => closeDialog($('#settings-dialog')));
 document.querySelectorAll('dialog').forEach(dialog => {
   dialog.addEventListener('close', () => {
     // Some browser/embedded Escape paths can close a dialog without a cancellable event.
@@ -192,7 +236,7 @@ function resetRound(changeType = false) {
   clearInput();
   if (changeType) physics.setPrizeType(activePrize.id); else physics.resetPrize();
   view.setPrizeType(activePrize.id);
-  attempts = 0; successShown = false; $('#success').hidden = true;
+  attempts = 0; recordEligible = true; successShown = false; $('#success').hidden = true;
   aim = { x: 0, y: CONFIG.home.y, z: 0 }; claw = { ...aim, open: 1 }; physics.setClawTarget(claw);
   for (let index = 0; index < 180; index++) physics.step(CONFIG.fixedStep);
   view.setTarget(aim); updateStats(); setPhase('aim'); accumulator = 0;
@@ -203,8 +247,8 @@ $('#play-again').addEventListener('click', reset);
 function win() {
   if (successShown) return;
   clearInput(); successShown = true; setPhase('won'); audio.win();
-  if (!best || attempts < best) { best = attempts; writeStorage(`hashi-best-${activePrize.id}`, best); updateStats(); }
-  $('#success-detail').textContent = `${activePrize.label}を${attempts}回のチャレンジで獲得しました。`;
+  if (recordEligible && (!best || attempts < best)) { best = attempts; writeStorage(armPowerRecordKey(activePrize.id, armPower), best); updateStats(); }
+  $('#success-detail').textContent = `${activePrize.label}を${attempts}回のチャレンジで獲得しました。アームパワー${armPower}％${recordEligible ? '' : '・参考プレイ'}。`;
   $('#success').hidden = false;
 }
 const smooth = value => { value = Math.min(1, Math.max(0, value)); return value * value * (3 - 2 * value); };
@@ -284,7 +328,7 @@ window.addEventListener('offline', updateOfflineStatus);
 
 async function init() {
   try {
-    physics = await createPhysics({ prizeType: activePrize.id });
+    physics = await createPhysics({ prizeType: activePrize.id, armPower });
     view = await createScene($('#stage'), { prizeType: activePrize.id });
     physics.setClawTarget(claw); view.setTarget(aim);
     for (let index = 0; index < 180; index++) physics.step(CONFIG.fixedStep);

@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { CONFIG } from './config.js';
 import { CLAW, clawAngle, clawPivot, clawPose, fingerSegments } from './claw.js';
 import { getPrizeType } from './prizes.js';
+import { ARM_POWER, normalizeArmPower } from './arm-power.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const vector = ({ x, y, z }) => ({ x, y, z });
@@ -12,7 +13,7 @@ let initialization;
 export const FINGER_GEOMETRY = CLAW;
 
 /** A metre/kilogram/second simulation. Prize motion is exclusively Rapier motion. */
-export async function createPhysics({ prizeType = 'standard' } = {}) {
+export async function createPhysics({ prizeType = 'standard', armPower = ARM_POWER.default } = {}) {
   initialization ??= RAPIER.init();
   await initialization;
 
@@ -27,6 +28,7 @@ export async function createPhysics({ prizeType = 'standard' } = {}) {
   let contact = false;
   let difficulty = 'normal';
   let selectedPrize = getPrizeType(prizeType);
+  let selectedArmPower = normalizeArmPower(armPower);
   let target = { ...CONFIG.home, open: 1 };
 
   // The carriage is driven, but each arm is a separate rigid body permanently
@@ -170,6 +172,11 @@ export async function createPhysics({ prizeType = 'standard' } = {}) {
     return selectedPrize.id;
   }
 
+  function setArmPower(percent) {
+    selectedArmPower = normalizeArmPower(percent);
+    return selectedArmPower;
+  }
+
   function setClawTarget(next) {
     target = {
       x: clamp(Number.isFinite(next.x) ? next.x : target.x, -CONFIG.moveLimit.x, CONFIG.moveLimit.x),
@@ -194,7 +201,9 @@ export async function createPhysics({ prizeType = 'standard' } = {}) {
     // out without permanently trapping the box. Closing remains deliberately
     // weak; both directions still have finite torque and angular speed.
     const opening = target.open > 0.5;
-    const limit = (opening ? 1.8 : 0.27) * strength;
+    // Power is a physical motor limit, not a win probability or a prize force.
+    // Keep the opening actuator independent so even the weakest grip can let go.
+    const limit = (opening ? 1.8 : 0.27 * selectedArmPower / 100) * strength;
     const angularVelocity = clamp(error * 7, -1.2, 1.2);
     const torque = clamp((angularVelocity - body.angvel().z) * (opening ? 1.2 : 0.35) - gravityTorque, -limit, limit);
     body.resetTorques(false);
@@ -279,13 +288,13 @@ export async function createPhysics({ prizeType = 'standard' } = {}) {
         velocity: vector(prize.linvel()), angularVelocity: vector(prize.angvel()),
         sleeping: prize.isSleeping(),
       },
-      claw: { position: headPosition, open: target.open, fingers: poses },
+      claw: { position: headPosition, open: target.open, armPower: selectedArmPower, fingers: poses },
       won, contact, elapsed,
     };
   }
 
   return {
-    step, setClawTarget, resetPrize, setPrizeType, getState,
+    step, setClawTarget, resetPrize, setPrizeType, setArmPower, getState,
     dispose() { if (!disposed) { disposed = true; world.free(); } },
     // Deterministic diagnostics used by regression tests. Gameplay never invokes
     // these: setting pose only establishes a test's initial physical conditions.

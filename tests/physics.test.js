@@ -4,6 +4,7 @@ import { createPhysics } from '../src/physics.js';
 import { CONFIG } from '../src/config.js';
 import { clawAngle, clawPivot } from '../src/claw.js';
 import { PRIZE_TYPES, getPrizeType, getPrizeLowerHeadY } from '../src/prizes.js';
+import { ARM_POWER } from '../src/arm-power.js';
 
 function simulate(physics, seconds, inspect) {
   for (let i = 0; i < Math.round(seconds / CONFIG.fixedStep); i++) {
@@ -394,4 +395,94 @@ test('the smaller tall box can be gripped and lifted at central and nearby aims'
         'the carton must return under gravity instead of remaining stuck in the open claw');
     } finally { physics.dispose(); }
   }
+});
+
+test('arm-power values normalize and survive resets and box changes without moving the simulation', async () => {
+  const physics = await createPhysics({ armPower: 137 });
+  const defaultPhysics = await createPhysics();
+  try {
+    assert.equal(defaultPhysics.getState().claw.armPower, ARM_POWER.default);
+    assert.equal(physics.getState().claw.armPower, 140);
+    initializeAtCentre(physics);
+    move(physics, { x: 0.15, z: 0.28, y: getPrizeLowerHeadY('standard'), open: 0 }, 2.5);
+    const before = physics.getState();
+    assert.equal(physics.setArmPower(43), 40);
+    const after = physics.getState();
+    assert.deepEqual(after, { ...before, claw: { ...before.claw, armPower: 40 } },
+      'changing the torque limit must preserve every pose, velocity, target, contact, and elapsed time');
+    physics.resetPrize('hard');
+    assert.equal(physics.getState().claw.armPower, 40);
+    physics.setPrizeType('tall');
+    assert.equal(physics.getState().claw.armPower, 40);
+    assert.equal(physics.setArmPower(-100), ARM_POWER.min);
+    assert.equal(physics.setArmPower(500), ARM_POWER.max);
+    assert.equal(physics.setArmPower(Number.NaN), ARM_POWER.default);
+    assert.equal(physics.setArmPower(Number.POSITIVE_INFINITY), ARM_POWER.default);
+
+    // Updating strength after acquisition cannot revoke a physically won prize.
+    physics.debug.setPrizePose({ x: 0, y: 2.1, z: 0 },
+      { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 });
+    simulate(physics, 2.1);
+    assert.equal(physics.getState().won, true);
+    const acquired = physics.getState();
+    physics.setArmPower(180);
+    assert.deepEqual(physics.getState(), { ...acquired, claw: { ...acquired.claw, armPower: 180 } });
+  } finally { physics.dispose(); defaultPhysics.dispose(); }
+});
+
+test('minimum and maximum arm power keep finite torques, attached hinges, and a full opening actuator', async () => {
+  for (const power of [ARM_POWER.min, ARM_POWER.max]) {
+    const physics = await createPhysics({ prizeType: 'tall', armPower: power });
+    try {
+      initializeAtCentre(physics);
+      const inspect = (state) => {
+        verifyHinges(state);
+        const expectedLimit = state.claw.open > 0.5 ? 1.8 : 0.27 * power / 100;
+        for (const arm of state.claw.fingers) assert.ok(Math.abs(arm.maxTorque - expectedLimit) < 1e-9,
+          'opening power stays fixed while the closing/holding torque scales with the selected percentage');
+      };
+      const result = attempt(physics, { x: 0, z: 0 }, inspect);
+      assert.equal(result.settled.contact, false, 'a completed opening must release the carton at every power');
+      for (const arm of result.settled.claw.fingers) {
+        assert.ok(Math.abs(arm.angle - clawAngle(arm.side, 1)) < 0.01);
+      }
+      physics.resetPrize('hard');
+      physics.setClawTarget({ open: 0 });
+      simulate(physics, 1.5, state => {
+        verifyHinges(state);
+        for (const arm of state.claw.fingers) assert.ok(Math.abs(arm.maxTorque - 0.27 * power / 100 * 0.88) < 1e-9);
+      });
+      physics.setClawTarget({ open: 1 });
+      simulate(physics, 1.5, state => {
+        verifyHinges(state);
+        for (const arm of state.claw.fingers) assert.ok(Math.abs(arm.maxTorque - 1.8 * 0.88) < 1e-9);
+      });
+    } finally { physics.dispose(); }
+  }
+});
+
+test('stronger bounded closing torque lifts an off-centre load higher than weak torque', async () => {
+  const results = [];
+  for (const power of [40, 180]) {
+    const physics = await createPhysics({ armPower: power });
+    try {
+      initializeAtCentre(physics);
+      const result = attempt(physics, { x: 0.1, z: 0.14 }, verifyHinges);
+      assert.equal(result.closed.contact, true, 'both trials grip the same real carton');
+      assert.equal(result.lifted.contact, true, 'both trials lift through actual spoon contact');
+      for (const arm of result.settled.claw.fingers) {
+        assert.equal(arm.maxTorque, 1.8, 'both trials use the same independent release motor');
+        assert.ok(Math.abs(arm.angle - clawAngle(arm.side, 1)) < 0.05);
+      }
+      assert.equal(result.lifted.claw.armPower, power);
+      results.push(result);
+    } finally { physics.dispose(); }
+  }
+  const [weak, strong] = results;
+  assert.ok(strong.lifted.prize.position.y > weak.lifted.prize.position.y + 0.2,
+    'increasing physical torque must retain this asymmetric load at least 20 cm higher');
+  assert.ok(Math.abs(weak.lifted.prize.position.x - 0.1) > 0.2,
+    'the low-torque grip physically slips sideways away from the aimed centre');
+  assert.ok(Math.abs(strong.lifted.prize.position.x - 0.1) < 0.03,
+    'the stronger motor retains the same off-centre load close to the aimed centre');
 });
